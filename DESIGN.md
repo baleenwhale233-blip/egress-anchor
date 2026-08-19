@@ -46,7 +46,7 @@ fixed-region access, streaming, desktop agents, browsers, and CLI tools.
   references and read-only.
 - Active client profiles, databases, preferences, controllers, runtime files,
   and credential stores are outside every development and test path.
-- Development HTTP, when implemented, binds to `127.0.0.1:8788` by default.
+- Development HTTP binds to `127.0.0.1:8788` by default.
 - All tests use sanitized files under `tests/fixtures/`.
 - No test reads an environment-dependent FlClash path.
 - Published repository history excludes machine-specific handoff context and
@@ -60,7 +60,7 @@ and report redaction. Delivery concerns stay in shallow adapters outside this
 seam.
 
 ```text
-                         future HTTP adapter (127.0.0.1:8788)
+                                HTTP adapter (127.0.0.1:8788)
  upstream URL ──fetch──> raw candidate ─┐
                                        │
  policy store ─────────────────────────┼──> compile_subscription()
@@ -72,7 +72,7 @@ seam.
                                                            │
  tokenized GET /sub/<token> ───────────────────────────────┘
 
- V0.1 implementation seam:
+ Pure compiler seam:
 
      source_yaml: str + policy: mapping
                      │
@@ -293,9 +293,9 @@ redacted `repr` if represented by an internal object.
 
 ## 9. HTTP subscription adapter contract
 
-The HTTP layer is a delivery adapter, not part of the compiler implementation.
-Its future external interface is tokenized `GET /sub/<token>` on loopback port
-`8788`.
+The HTTP layer is an implemented delivery adapter outside the compiler module.
+Its external interface is tokenized `GET /sub/<token>` on loopback port `8788`,
+plus local JSON endpoints used by the management UI.
 
 Security defaults:
 
@@ -402,7 +402,7 @@ implementation at a time:
 | Existing generated-looking name | Preserve unrelated names; exact collision rejects | collision fixtures | actionable safe error |
 | Multiple managed groups, one invalid | No output returned | all-or-nothing test | prior LKG remains |
 | Malformed YAML contains a password | Sanitize parser error | secret fixture | code + location only |
-| Concurrent refreshes | Single-flight + immutable snapshot | adapter integration test later | stable prior or next generation, never partial |
+| Concurrent refreshes | In-process lock + immutable generation pointer | gateway integration tests | stable prior or next generation, never partial |
 | Crash during cache write | temp file + fsync + atomic replace | adapter integration test later | prior generation survives |
 
 No planned compiler failure is silent. Adapter-only failures are documented here
@@ -433,9 +433,9 @@ Compilation is `O(B + V + E)` time and `O(B + V)` memory, where `B` is YAML size
 `V` is proxies/groups, and `E` is explicit references. One deep copy is acceptable
 under the 8 MiB V0.1 input limit. There is no compiler-level cache or concurrency.
 
-The future adapter owns refresh scheduling, conditional HTTP requests,
-single-flight coordination, and last-known-good storage. This keeps nondeterminism
-and I/O outside the compiler seam.
+The gateway adapter owns conditional HTTP requests, in-process refresh
+coordination, and last-known-good storage. This keeps nondeterminism and I/O
+outside the compiler seam.
 
 ## 15. Sequential implementation
 

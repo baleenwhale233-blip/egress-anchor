@@ -13,15 +13,20 @@ not the product boundary.
 
 ## Status
 
-V0.1 currently implements the pure, fixture-tested configuration compiler:
+V0.1 includes the fixture-tested compiler and a loopback-only local gateway:
 
 ```python
 compile_subscription(source_yaml, policy) -> CompileResult
 ```
 
-The tokenized HTTP subscription endpoint, last-known-good cache, UI, packaging,
-and client smoke tests are designed in [DESIGN.md](DESIGN.md) but are not yet
-implemented.
+- Chinese management UI on `127.0.0.1:8788`
+- tokenized `/sub/<token>` subscription endpoint
+- upstream group discovery
+- HTTP/SOCKS5 landing management
+- `source`, `fixed`, `automatic`, and `direct` front-hop policies
+- last-known-good compiled generations
+
+Packaging and disposable client smoke tests remain future work.
 
 ## Why the topology fails closed
 
@@ -58,7 +63,25 @@ source .venv/bin/activate
 python3 -m pip install -r requirements.txt
 ```
 
-## Compiler example
+## Run the local gateway
+
+```bash
+python3 app.py
+```
+
+Open <http://127.0.0.1:8788> and follow the page:
+
+1. Save one complete Mihomo subscription URL and refresh it.
+2. Add an HTTP or SOCKS5 landing proxy.
+3. Enable selected policy groups and choose their front-hop policy.
+4. Save to generate the local subscription URL.
+5. Copy that URL into a Mihomo-compatible client.
+
+Runtime state is stored under the ignored `dev-data/` directory by default.
+The state and generated client YAML contain plaintext landing credentials and
+use filesystem mode `0600`; do not upload or share that directory.
+
+## Compiler interface
 
 ```python
 from pathlib import Path
@@ -117,10 +140,8 @@ Run the standard-library suite:
 python3 -m unittest discover -s tests -v
 ```
 
-Fixtures cover inline proxies, flow and block styles, YAML aliases, nested groups,
-provider `use`, duplicate keys and names, missing groups and hops, generated-name
-collisions, malformed YAML, custom tags, source updates, include-all behavior,
-cycles, deterministic output, structural idempotence, and secret redaction.
+Fixtures cover compiler behavior plus gateway state, LKG refresh failures,
+loopback HTTP APIs, Host validation, tokenized delivery, and the management UI.
 
 Tests do not read FlClash files, preferences, databases, controllers, production
 state, or network services.
@@ -130,7 +151,7 @@ state, or network services.
 - Treat any existing gateway repository and active client data as read-only.
 - Never point development at real client profiles, databases, preferences,
   controllers, runtime files, or credential stores.
-- Future EgressAnchor development HTTP defaults to `127.0.0.1:8788`.
+- EgressAnchor HTTP binds only to `127.0.0.1:8788` by default.
 - Development state belongs under this repository's ignored `dev-data/` path.
 - Client fixtures belong under `tests/fixtures/` only.
 

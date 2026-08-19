@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>出口锚点 · EgressAnchor</title>
+  <style>
+    :root {
+      --bg: #101114;
+      --panel: #181a1e;
+      --panel2: #1f2227;
+      --line: #2c3036;
+      --text: #ece8e1;
+      --muted: #969187;
+      --host: #c45c4a;
+      --accent: #d7c4a3;
+      --ok: #7dcea0;
+      --warn: #e6c07b;
+      --danger: #f0b0a6;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 13.5px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif;
+    }
+    body { padding: 20px 22px 88px; max-width: 1280px; margin: 0 auto; }
+    h1 { font-size: 18px; font-weight: 650; margin: 0 0 2px; letter-spacing: -0.02em; }
+    button, select, input {
+      min-height: 36px;
+      font: inherit;
+      color: var(--text);
+      background: var(--panel2);
+      border: 1px solid #3a3e45;
+      border-radius: 7px;
+    }
+    input, select { width: 100%; padding: 6px 8px; }
+    button { padding: 6px 11px; cursor: pointer; }
+    button:hover { background: #2a2e34; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    button.primary { background: #3a3428; border-color: #5a4e3a; color: var(--accent); }
+    button.primary:hover { background: #463e30; }
+    button.danger { color: var(--danger); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+    .sub { color: var(--muted); margin: 0 0 16px; }
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
+    .pill { border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; font-size: 12px; color: var(--muted); }
+    .pill.on { color: var(--text); border-color: #4a4e55; }
+    .pill.warn { color: var(--host); border-color: #5a322c; }
+    .grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 12px; }
+    .grid + .grid { margin-top: 12px; }
+    .stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+    .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; }
+    .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+    .row2 { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .ops { display: flex; gap: 6px; flex-wrap: wrap; }
+    label.f { display: block; margin: 0 0 8px; }
+    label.f > span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+    .landing { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; background: #16181c; }
+    .landing .n { font-weight: 600; }
+    .landing .m { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-all; }
+    .landing .ops { margin-top: 8px; }
+    .empty { color: var(--muted); padding: 12px 4px; }
+    .table-wrap { overflow: auto; max-height: 430px; }
+    table { width: 100%; border-collapse: collapse; min-width: 720px; }
+    th { position: sticky; top: 0; z-index: 1; text-align: left; color: var(--muted); background: var(--panel); font-weight: 500; padding: 7px 6px; border-bottom: 1px solid var(--line); font-size: 12px; }
+    td { padding: 7px 6px; border-bottom: 1px solid #23262b; vertical-align: middle; }
+    .banner { background: #2a2218; border: 1px solid #4a3c28; color: #efd08a; padding: 8px 10px; border-radius: 8px; margin-bottom: 12px; font-size: 12.5px; }
+    .banner.ok { background: #17241d; border-color: #2a4a38; color: #b6e0c8; }
+    .banner.bad { background: #2b1b19; border-color: #5a322c; color: var(--danger); }
+    .st { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; margin-left: 6px; vertical-align: 1px; }
+    .st.on { background: #1c3d2e; color: #8ee0b5; }
+    .st.pending { background: #3a301c; color: #efd08a; }
+    .st.off { background: #24262b; color: var(--muted); }
+    .sw { position: relative; width: 34px; height: 19px; display: inline-block; vertical-align: middle; }
+    .sw input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; z-index: 1; }
+    .sw i { position: absolute; inset: 0; border-radius: 999px; background: #2c3036; border: 1px solid #3a3e45; transition: background 0.15s, border-color 0.15s; }
+    .sw i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #969187; transition: left 0.15s, background 0.15s; }
+    .sw input:checked + i { background: #24402f; border-color: #3f9a6f; }
+    .sw input:checked + i::after { left: 16px; background: var(--ok); }
+    .big { font-size: 20px; font-weight: 650; margin: 6px 0 4px; }
+    .url-box { display: flex; gap: 8px; align-items: center; padding: 9px 10px; background: #121317; border: 1px solid var(--line); border-radius: 8px; }
+    .url-box code { flex: 1; min-width: 0; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+    .metric { padding: 9px; background: #14161a; border: 1px solid var(--line); border-radius: 8px; }
+    .metric b { display: block; font-size: 18px; }
+    .metric span { color: var(--muted); font-size: 11px; }
+    .dock { position: fixed; left: 0; right: 0; bottom: 0; background: #14161aee; border-top: 1px solid var(--line); backdrop-filter: blur(10px); z-index: 10; }
+    .dock-in { max-width: 1280px; margin: 0 auto; padding: 10px 22px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .dock .grow { flex: 1; color: var(--muted); font-size: 12px; min-width: 220px; }
+    .modal { position: fixed; inset: 0; background: #0009; display: none; align-items: center; justify-content: center; padding: 20px; z-index: 20; }
+    .modal.on { display: flex; }
+    .sheet { width: min(520px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: 0 24px 80px #0008; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    @media (max-width: 980px) {
+      body { padding: 16px; }
+      .grid { grid-template-columns: 1fr; }
+      .dock { position: static; margin: 12px -16px -16px; }
+      .table-wrap { max-height: none; }
+    }
+    @media (max-width: 560px) {
+      .row2, .row3, .metrics { grid-template-columns: 1fr; }
+      .url-box { align-items: stretch; flex-direction: column; }
+      .dock-in { padding: 10px 16px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>出口锚点 <span style="color:var(--muted);font-weight:500">EgressAnchor</span></h1>
+  <p class="sub">给指定策略组固定落地出口。链路失败时停止连接，不回退到普通机场出口。</p>
+  <div id="banner" aria-live="polite"></div>
+  <div class="pills" id="pills" aria-label="网关状态"></div>
+
+  <div class="grid">
+    <div class="stack">
+      <section class="card">
+        <div class="head"><div class="k">上游订阅</div><span class="st off" id="upstream-state">未配置</span></div>
+        <label class="f">
+          <span>完整 Mihomo 订阅 URL</span>
+          <input id="upstream-url" type="url" autocomplete="off" placeholder="https://provider.example/sub?token=…" />
+        </label>
+        <div class="ops">
+          <button id="btn-save-upstream">保存地址</button>
+          <button class="primary" id="btn-refresh">刷新并发现策略组</button>
+        </div>
+        <p class="sub" id="upstream-hint" style="margin:8px 0 0">URL 仅保存在本机，不会出现在日志或错误消息中。</p>
+      </section>
+
+      <section class="card">
+        <div class="head"><div class="k">落地代理</div><button class="primary" id="btn-add-landing">添加</button></div>
+        <div id="landing-list"></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="head">
+        <div class="k">策略组 → 落地</div>
+        <span class="sub" style="margin:0">只管理你明确开启的组</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>启用</th><th>策略组</th><th>落地</th><th>前置策略</th><th>固定前置</th></tr></thead>
+          <tbody id="binding-rows"></tbody>
+        </table>
+      </div>
+      <p class="sub" style="margin:10px 0 0">source 保留原组选择；automatic 自动健康选择；fixed 固定一个前置；direct 直接连接落地。</p>
+    </section>
+  </div>
+
+  <div class="grid">
+    <section class="card">
+      <div class="k">本地订阅地址</div>
+      <div class="big" id="subscription-title">尚未生成</div>
+      <div class="url-box">
+        <code id="subscription-url">先刷新上游并保存至少一个管理组</code>
+        <button id="btn-copy" disabled>复制</button>
+      </div>
+      <p class="sub" id="subscription-hint" style="margin:8px 0 0">把生成后的 URL 添加到 Mihomo 兼容客户端。</p>
+    </section>
+
+    <section class="card">
+      <div class="k">最后成功缓存</div>
+      <div class="big" id="cache-title">无可用版本</div>
+      <div class="metrics">
+        <div class="metric"><b id="metric-groups">0</b><span>管理组</span></div>
+        <div class="metric"><b id="metric-landings">0</b><span>落地代理</span></div>
+        <div class="metric"><b id="metric-source">0</b><span>发现策略组</span></div>
+      </div>
+      <p class="sub" id="cache-meta" style="margin:8px 0 0">刷新失败时不会用原订阅旁路。</p>
+    </section>
+  </div>
+
+  <div class="dock">
+    <div class="dock-in">
+      <div class="grow" id="dock-msg" aria-live="polite">配置上游、落地和管理组后，保存即可生成本地订阅。</div>
+      <button id="btn-dock-refresh">刷新上游</button>
+      <button class="primary" id="btn-save-bindings">保存并生成订阅</button>
+    </div>
+  </div>
+
+  <div class="modal" id="landing-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="sheet">
+      <div class="head"><div class="k" id="modal-title">添加落地代理</div><button id="btn-close-modal">关闭</button></div>
+      <input id="landing-id" type="hidden" />
+      <label class="f"><span>名称</span><input id="landing-name" placeholder="US Residential 1" /></label>
+      <div class="row3">
+        <label class="f"><span>方式</span><select id="landing-type"><option value="socks5">SOCKS5</option><option value="http">HTTP</option></select></label>
+        <label class="f"><span>端口</span><input id="landing-port" type="number" min="1" max="65535" placeholder="1080" /></label>
+        <label class="f"><span>UDP</span><select id="landing-udp"><option value="1">开启</option><option value="0">关闭</option></select></label>
+      </div>
+      <label class="f"><span>服务器</span><input id="landing-server" autocomplete="off" placeholder="landing.example.com" /></label>
+      <div class="row2" style="grid-template-columns:1fr 1fr">
+        <label class="f"><span>用户名</span><input id="landing-user" autocomplete="off" /></label>
+        <label class="f"><span>密码</span><input id="landing-pass" type="password" autocomplete="new-password" placeholder="编辑时留空可保留" /></label>
+      </div>
+      <div class="ops" style="justify-content:flex-end">
+        <button class="danger" id="btn-delete-landing" style="display:none">删除</button>
+        <button class="primary" id="btn-save-landing">保存</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let state = null;
+let busy = false;
+
+const errorMessages = {
+  UPSTREAM_URL_INVALID: "请输入有效的 HTTP 或 HTTPS 订阅地址。",
+  UPSTREAM_NOT_CONFIGURED: "请先配置上游订阅。",
+  UPSTREAM_FETCH_FAILED: "无法获取上游订阅。",
+  UPSTREAM_HTTP_ERROR: "上游订阅返回了 HTTP 错误。",
+  UPSTREAM_REDIRECT_LIMIT: "上游订阅重定向次数过多。",
+  UPSTREAM_TOO_LARGE: "上游订阅超过大小限制。",
+  UPSTREAM_ENCODING_INVALID: "上游订阅不是有效的 UTF-8 文本。",
+  SOURCE_CACHE_MISSING: "上游缓存不存在，请重新刷新。",
+  MANAGED_GROUP_MISSING: "上游订阅已移除一个受管理策略组。",
+  FRONT_REFERENCE_MISSING: "前置节点或 provider 已从上游订阅移除。",
+  TOPOLOGY_CYCLE: "当前配置会形成代理循环，请调整前置策略。",
+  POLICY_INVALID: "策略组配置无效。",
+  BINDINGS_INVALID: "策略组绑定无效，请检查落地和前置策略。",
+  LANDING_INVALID: "落地代理配置无效。",
+  NO_COMPILED_SUBSCRIPTION: "尚未生成可用的本地订阅。",
+  INTERNAL_ERROR: "本地网关处理失败。",
+};
+
+function errorMessage(code, fallback) {
+  return errorMessages[code] || fallback || "请求失败";
+}
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[char]));
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, options);
+  const body = await response.json();
+  if (!response.ok || body.ok === false) {
+    const code = body.error?.code || "REQUEST_FAILED";
+    const error = new Error(errorMessage(code, body.error?.message));
+    error.code = code;
+    throw error;
+  }
+  return body;
+}
+
+function setBusy(value, message) {
+  busy = value;
+  for (const button of document.querySelectorAll("button")) button.disabled = value;
+  if (!value) renderSubscription();
+  if (message) $("dock-msg").textContent = message;
+}
+
+function formatTime(value) {
+  if (!value) return "—";
+  return new Date(value * 1000).toLocaleString();
+}
+
+function bindingFor(group) {
+  return state.bindings.find((binding) => binding.group === group);
+}
+
+function visibleGroups() {
+  const builtins = new Set(["DIRECT", "REJECT", "REJECT-DROP", "PASS", "PASS-RULE", "COMPATIBLE", "GLOBAL"]);
+  return state.catalog.groups.filter((group) => !group.hidden && !builtins.has(group.name));
+}
+
+function ensureBindings() {
+  const existing = new Map(state.bindings.map((binding) => [binding.group, binding]));
+  state.bindings = visibleGroups().map((group) => existing.get(group.name) || {
+    group: group.name,
+    enabled: false,
+    landing_id: "",
+    front_hop: { mode: "source" },
+  });
+}
+
+function renderPills() {
+  const items = [
+    ["服务 :8788", true],
+    [state.upstream.configured ? "上游已配置" : "上游未配置", state.upstream.configured],
+    [state.subscription.available ? "订阅可用" : "订阅待生成", state.subscription.available],
+    [`落地 ${state.landings.length}`, state.landings.length > 0],
+    [`管理组 ${state.bindings.filter((item) => item.enabled).length}`, state.bindings.some((item) => item.enabled)],
+  ];
+  $("pills").innerHTML = items.map(([label, on]) => `<span class="pill ${on ? "on" : "warn"}">${esc(label)}</span>`).join("");
+}
+
+function renderBanner() {
+  if (state.last_error) {
+    $("banner").innerHTML = `<div class="banner bad">${esc(errorMessage(state.last_error.code, state.last_error.message))} <code>${esc(state.last_error.code)}</code>${state.subscription.available ? "<br>仍在服务最后成功版本，没有旁路到原订阅。" : ""}</div>`;
+  } else if (state.subscription.available) {
+    $("banner").innerHTML = `<div class="banner ok">本地订阅已生成。客户端更新订阅时会继续经过出口锚点。</div>`;
+  } else {
+    $("banner").innerHTML = "";
+  }
+}
+
+function renderUpstream() {
+  const configured = state.upstream.configured;
+  $("upstream-state").textContent = configured ? "已配置" : "未配置";
+  $("upstream-state").className = `st ${configured ? "on" : "off"}`;
+  $("upstream-url").placeholder = configured ? `${state.upstream.display_url}（重新填写可替换）` : "https://provider.example/sub?token=…";
+  $("upstream-hint").textContent = configured ? `当前：${state.upstream.display_url}` : "URL 仅保存在本机，不会出现在日志或错误消息中。";
+}
+
+function renderLandings() {
+  if (!state.landings.length) {
+    $("landing-list").innerHTML = `<div class="empty">还没有落地代理。添加 HTTP 或 SOCKS5 落地后才能管理策略组。</div>`;
+    return;
+  }
+  $("landing-list").innerHTML = state.landings.map((landing) => `
+    <div class="landing">
+      <div class="n">${esc(landing.name)}</div>
+      <div class="m">${esc(landing.type.toUpperCase())} · ${esc(landing.server)}:${esc(landing.port)}${landing.username ? ` · ${esc(landing.username)}` : ""}</div>
+      <div class="m">${landing.has_password ? "密码已保存" : "无密码"} · UDP ${landing.udp ? "开" : "关"}</div>
+      <div class="ops"><button data-edit-landing="${esc(landing.id)}">编辑</button></div>
+    </div>`).join("");
+}
+
+function landingOptions(selected) {
+  return [`<option value="">未选择</option>`, ...state.landings.map((landing) =>
+    `<option value="${esc(landing.id)}" ${landing.id === selected ? "selected" : ""}>${esc(landing.name)}</option>`
+  )].join("");
+}
+
+function frontOptions(groupName, selected) {
+  const proxyOptions = state.catalog.proxies.map((proxy) => proxy.name);
+  const groupOptions = state.catalog.groups.map((group) => group.name).filter((name) => name !== groupName);
+  return [`<option value="">请选择</option>`, ...[...proxyOptions, ...groupOptions].map((name) =>
+    `<option value="${encodeURIComponent(name)}" ${name === selected ? "selected" : ""}>${esc(name)}</option>`
+  )].join("");
+}
+
+function renderBindings() {
+  ensureBindings();
+  const rows = visibleGroups().map((group) => {
+    const binding = bindingFor(group.name);
+    const mode = binding.front_hop?.mode || "source";
+    const fixed = binding.front_hop?.proxy || "";
+    const status = binding.enabled ? `<span class="st ${state.subscription.available ? "on" : "pending"}">${state.subscription.available ? "已锚定" : "待生成"}</span>` : `<span class="st off">未管理</span>`;
+    const key = encodeURIComponent(group.name);
+    return `<tr>
+      <td><label class="sw"><span class="sr-only">管理 ${esc(group.name)}</span><input data-enable="${key}" type="checkbox" ${binding.enabled ? "checked" : ""}><i></i></label></td>
+      <td>${esc(group.name)}${status}<div class="sub" style="margin:0">${esc(group.type)} · ${group.proxies.length} 节点 · ${group.use.length} provider</div></td>
+      <td><select aria-label="${esc(group.name)} 落地" data-landing="${key}">${landingOptions(binding.landing_id)}</select></td>
+      <td><select aria-label="${esc(group.name)} 前置策略" data-mode="${key}"><option value="source" ${mode === "source" ? "selected" : ""}>source</option><option value="automatic" ${mode === "automatic" ? "selected" : ""}>automatic</option><option value="fixed" ${mode === "fixed" ? "selected" : ""}>fixed</option><option value="direct" ${mode === "direct" ? "selected" : ""}>direct</option></select></td>
+      <td><select aria-label="${esc(group.name)} 固定前置" data-fixed="${key}" ${mode === "fixed" ? "" : "disabled"}>${frontOptions(group.name, fixed)}</select></td>
+    </tr>`;
+  }).join("");
+  $("binding-rows").innerHTML = rows || `<tr><td colspan="5" class="empty">先配置上游并刷新，策略组会显示在这里。</td></tr>`;
+}
+
+function collectBindings() {
+  state.bindings = visibleGroups().map((group) => {
+    const key = encodeURIComponent(group.name);
+    const mode = document.querySelector(`[data-mode="${key}"]`)?.value || "source";
+    const fixedValue = document.querySelector(`[data-fixed="${key}"]`)?.value || "";
+    const front_hop = { mode };
+    if (mode === "fixed" && fixedValue) front_hop.proxy = decodeURIComponent(fixedValue);
+    return {
+      group: group.name,
+      enabled: !!document.querySelector(`[data-enable="${key}"]`)?.checked,
+      landing_id: document.querySelector(`[data-landing="${key}"]`)?.value || "",
+      front_hop,
+    };
+  });
+}
+
+function renderSubscription() {
+  const available = state?.subscription?.available;
+  $("subscription-title").textContent = available ? "可复制使用" : "尚未生成";
+  $("subscription-url").textContent = available ? state.subscription.url : "先刷新上游并保存至少一个管理组";
+  $("btn-copy").disabled = busy || !available;
+  $("subscription-hint").textContent = available ? "复制到 Mihomo 兼容客户端。配置变化后在客户端手动更新订阅。" : "生成失败时不会返回未经编译的原订阅。";
+}
+
+function renderCache() {
+  const report = state.subscription.report;
+  $("cache-title").textContent = state.subscription.available ? "最后成功版本可用" : "无可用版本";
+  $("metric-groups").textContent = report?.counts?.managed_groups || 0;
+  $("metric-landings").textContent = state.landings.length;
+  $("metric-source").textContent = state.catalog.groups.length;
+  $("cache-meta").textContent = state.last_success_at ? `生成于 ${formatTime(state.last_success_at)}；上游最后刷新 ${formatTime(state.last_refresh_at)}` : "刷新失败时不会用原订阅旁路。";
+}
+
+function renderAll() {
+  renderPills(); renderBanner(); renderUpstream(); renderLandings(); renderBindings(); renderSubscription(); renderCache();
+}
+
+async function reloadState() {
+  const body = await api("/api/state");
+  state = body.state;
+  renderAll();
+}
+
+async function saveUpstreamIfEntered() {
+  const url = $("upstream-url").value.trim();
+  if (!url) {
+    if (!state.upstream.configured) throw new Error("请先填写上游订阅 URL");
+    return;
+  }
+  await api("/api/upstream", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+  $("upstream-url").value = "";
+}
+
+async function refreshUpstream() {
+  setBusy(true, "正在刷新并验证上游订阅…");
+  try {
+    await saveUpstreamIfEntered();
+    await api("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    await reloadState();
+    $("dock-msg").textContent = "上游刷新成功，策略组目录已更新。";
+  } catch (error) {
+    await reloadState();
+    $("dock-msg").textContent = `${error.message}（${error.code || "ERROR"}）`;
+  } finally { setBusy(false); }
+}
+
+function openLandingModal(landing = null) {
+  $("modal-title").textContent = landing ? "编辑落地代理" : "添加落地代理";
+  $("landing-id").value = landing?.id || "";
+  $("landing-name").value = landing?.name || "";
+  $("landing-type").value = landing?.type || "socks5";
+  $("landing-server").value = landing?.server || "";
+  $("landing-port").value = landing?.port || "";
+  $("landing-user").value = landing?.username || "";
+  $("landing-pass").value = "";
+  $("landing-udp").value = landing?.udp === false ? "0" : "1";
+  $("btn-delete-landing").style.display = landing ? "inline-block" : "none";
+  $("landing-modal").classList.add("on");
+  $("landing-name").focus();
+}
+
+function closeLandingModal() { $("landing-modal").classList.remove("on"); }
+
+async function saveLanding() {
+  const payload = {
+    id: $("landing-id").value || undefined,
+    name: $("landing-name").value.trim(),
+    type: $("landing-type").value,
+    server: $("landing-server").value.trim(),
+    port: Number($("landing-port").value),
+    username: $("landing-user").value,
+    password: $("landing-pass").value,
+    udp: $("landing-udp").value === "1",
+  };
+  setBusy(true, "正在保存落地代理…");
+  try {
+    await api("/api/landings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    closeLandingModal();
+    await reloadState();
+    $("dock-msg").textContent = "落地代理已保存。";
+  } catch (error) { $("dock-msg").textContent = error.message; }
+  finally { setBusy(false); }
+}
+
+async function deleteLanding() {
+  const id = $("landing-id").value;
+  if (!id || !confirm("删除这个落地代理？引用它的策略组会自动停用。")) return;
+  setBusy(true, "正在删除落地代理…");
+  try {
+    await api(`/api/landings/${encodeURIComponent(id)}`, { method: "DELETE" });
+    closeLandingModal(); await reloadState(); $("dock-msg").textContent = "落地代理已删除。";
+  } catch (error) { $("dock-msg").textContent = error.message; }
+  finally { setBusy(false); }
+}
+
+async function saveBindings() {
+  collectBindings();
+  for (const binding of state.bindings.filter((item) => item.enabled)) {
+    if (!binding.landing_id) { $("dock-msg").textContent = `「${binding.group}」还没选择落地代理。`; return; }
+    if (binding.front_hop.mode === "fixed" && !binding.front_hop.proxy) { $("dock-msg").textContent = `「${binding.group}」还没选择固定前置。`; return; }
+  }
+  setBusy(true, "正在编译失败关闭订阅…");
+  try {
+    await api("/api/bindings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bindings: state.bindings }) });
+    await reloadState(); $("dock-msg").textContent = "配置已保存，本地订阅已更新。";
+  } catch (error) { await reloadState(); $("dock-msg").textContent = `${error.message}（仍保留最后成功版本）`; }
+  finally { setBusy(false); }
+}
+
+$("btn-save-upstream").onclick = async () => { setBusy(true, "正在保存上游地址…"); try { await saveUpstreamIfEntered(); await reloadState(); $("dock-msg").textContent = "上游地址已保存。"; } catch (error) { $("dock-msg").textContent = error.message; } finally { setBusy(false); } };
+$("btn-refresh").onclick = refreshUpstream;
+$("btn-dock-refresh").onclick = refreshUpstream;
+$("btn-save-bindings").onclick = saveBindings;
+$("btn-add-landing").onclick = () => openLandingModal();
+$("btn-close-modal").onclick = closeLandingModal;
+$("btn-save-landing").onclick = saveLanding;
+$("btn-delete-landing").onclick = deleteLanding;
+$("landing-modal").onclick = (event) => { if (event.target === $("landing-modal")) closeLandingModal(); };
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeLandingModal(); });
+$("landing-list").onclick = (event) => { const button = event.target.closest("[data-edit-landing]"); if (button) openLandingModal(state.landings.find((item) => item.id === button.dataset.editLanding)); };
+$("binding-rows").onchange = (event) => { if (event.target.matches("[data-mode]")) { collectBindings(); renderBindings(); } };
+$("btn-copy").onclick = async () => { try { await navigator.clipboard.writeText(state.subscription.url); $("dock-msg").textContent = "订阅地址已复制。"; } catch { $("dock-msg").textContent = "复制失败，请手动选择地址复制。"; } };
+
+reloadState().catch((error) => { $("banner").innerHTML = `<div class="banner bad">${esc(error.message)}</div>`; });
+</script>
+</body>
+</html>
