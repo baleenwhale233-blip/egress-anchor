@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+
+# 明文 ISP 凭据 + 订阅备份，绝不入库
+data/
+dev-data/
+
+.venv/
+venv/
+.DS_Store
+
+# Local agent handoff and machine-specific operational context
+HANDOFF.md

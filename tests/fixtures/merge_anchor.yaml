@@ -1,0 +1,13 @@
+x-proxy-base: &proxy-base
+  type: socks5
+  server: 192.0.2.140
+  port: 1080
+proxies:
+  - <<: *proxy-base
+    name: HK-01
+proxy-groups:
+  - name: AI
+    type: select
+    proxies: [HK-01]
+rules:
+  - MATCH,AI

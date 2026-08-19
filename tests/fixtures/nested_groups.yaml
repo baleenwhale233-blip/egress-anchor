@@ -1,0 +1,33 @@
+proxies:
+  - name: HK-01
+    type: socks5
+    server: 192.0.2.70
+    port: 1080
+  - name: US-01
+    type: socks5
+    server: 192.0.2.71
+    port: 1080
+proxy-groups:
+  - name: AI
+    type: select
+    proxies:
+      - Region A
+      - Region B
+  - name: Region A
+    type: select
+    proxies:
+      - HK-01
+  - name: Region B
+    type: fallback
+    proxies:
+      - US-01
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+  - name: Nested Consumer
+    type: select
+    proxies:
+      - AI
+      - DIRECT
+rules:
+  - DOMAIN-SUFFIX,example.test,Nested Consumer
+  - MATCH,Region B

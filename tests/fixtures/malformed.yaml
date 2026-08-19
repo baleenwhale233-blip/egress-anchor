@@ -1,0 +1,9 @@
+proxies:
+  - name: Broken
+    type: socks5
+    password: fixture-do-not-leak
+    server: [unterminated
+proxy-groups:
+  - name: AI
+    type: select
+    proxies: [Broken]

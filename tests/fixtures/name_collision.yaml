@@ -1,0 +1,25 @@
+proxies:
+  - name: HK-01
+    type: ss
+    server: 192.0.2.10
+    port: 443
+    cipher: aes-128-gcm
+    password: fixture-upstream-password
+  - name: GW·user-owned
+    type: socks5
+    server: 192.0.2.30
+    port: 1080
+  - name: EA·user-owned
+    type: http
+    server: 192.0.2.31
+    port: 8080
+  - name: EA·11fb682be0a0233d·landing
+    type: socks5
+    server: 192.0.2.32
+    port: 1080
+proxy-groups:
+  - name: AI
+    type: select
+    proxies: [HK-01]
+rules:
+  - MATCH,AI

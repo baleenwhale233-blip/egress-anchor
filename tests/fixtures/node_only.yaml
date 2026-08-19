@@ -1,0 +1,8 @@
+- name: HK-01
+  type: socks5
+  server: 192.0.2.50
+  port: 1080
+- name: US-01
+  type: http
+  server: 192.0.2.51
+  port: 8080

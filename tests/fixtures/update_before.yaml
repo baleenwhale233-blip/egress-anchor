@@ -1,0 +1,15 @@
+proxies:
+  - name: Stable-01
+    type: socks5
+    server: 192.0.2.90
+    port: 1080
+  - name: Removed-01
+    type: socks5
+    server: 192.0.2.91
+    port: 1080
+proxy-groups:
+  - name: AI
+    type: select
+    proxies: [Stable-01, Removed-01]
+rules:
+  - MATCH,AI

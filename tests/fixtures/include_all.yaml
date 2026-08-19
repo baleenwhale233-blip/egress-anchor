@@ -1,0 +1,16 @@
+proxies:
+  - name: HK-01
+    type: socks5
+    server: 192.0.2.130
+    port: 1080
+  - name: EA·user-owned
+    type: socks5
+    server: 192.0.2.131
+    port: 1080
+proxy-groups:
+  - name: AI
+    type: select
+    include-all-proxies: true
+    exclude-filter: "(?i)expired"
+rules:
+  - MATCH,AI

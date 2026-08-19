@@ -1,0 +1,39 @@
+mixed-port: 7890
+mode: rule
+proxies:
+  - name: HK-01
+    type: ss
+    server: 192.0.2.10
+    port: 443
+    cipher: aes-128-gcm
+    password: fixture-upstream-password
+  - name: US-01
+    type: vmess
+    server: 198.51.100.20
+    port: 443
+    uuid: 00000000-0000-4000-8000-000000000001
+  - name: GW·user-owned
+    type: socks5
+    server: 203.0.113.30
+    port: 1080
+  - name: EA·user-owned
+    type: http
+    server: 203.0.113.31
+    port: 8080
+proxy-groups:
+  - name: AI
+    type: select
+    icon: https://assets.example.invalid/ai.svg
+    hidden: false
+    disable-udp: true
+    proxies:
+      - HK-01
+      - US-01
+  - name: Default
+    type: select
+    proxies:
+      - DIRECT
+      - HK-01
+rules:
+  - DOMAIN-SUFFIX,example.test,AI
+  - MATCH,Default

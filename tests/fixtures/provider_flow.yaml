@@ -1,0 +1,22 @@
+proxy-providers:
+  airport:
+    type: http
+    url: https://subscription.example.invalid/nodes?token=fixture-token
+    path: ./providers/airport.yaml
+    health-check: &provider-health
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+proxies:
+  - { name: HK-01, type: socks5, server: 192.0.2.60, port: 1080 }
+proxy-groups:
+  - { name: AI, type: select, proxies: [HK-01], use: [airport], filter: "(?i)us|美国" }
+  - name: Default
+    type: select
+    proxies:
+      - DIRECT
+      - HK-01
+rules:
+  - DOMAIN-SUFFIX,example.test,AI
+  - MATCH,Default
+x-fixture-health: *provider-health

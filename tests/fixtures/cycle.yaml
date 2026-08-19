@@ -1,0 +1,17 @@
+proxies:
+  - name: HK-01
+    type: socks5
+    server: 192.0.2.80
+    port: 1080
+proxy-groups:
+  - name: AI
+    type: select
+    proxies:
+      - Loop
+  - name: Loop
+    type: select
+    proxies:
+      - AI
+      - HK-01
+rules:
+  - MATCH,AI

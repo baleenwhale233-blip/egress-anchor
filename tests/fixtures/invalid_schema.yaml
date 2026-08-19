@@ -1,0 +1,9 @@
+proxies:
+  HK-01:
+    type: socks5
+    server: 192.0.2.110
+    port: 1080
+proxy-groups:
+  - name: AI
+    type: select
+    proxies: [HK-01]

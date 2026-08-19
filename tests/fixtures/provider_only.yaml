@@ -1,0 +1,15 @@
+proxy-providers:
+  airport:
+    type: http
+    url: https://subscription.example.invalid/provider.yaml
+    path: ./providers/airport.yaml
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+proxy-groups:
+  - name: AI
+    type: select
+    use: [airport]
+rules:
+  - MATCH,AI
