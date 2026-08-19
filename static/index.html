@@ -63,10 +63,11 @@
     .ops { display: flex; gap: 6px; flex-wrap: wrap; }
     label.f { display: block; margin: 0 0 8px; }
     label.f > span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
-    .landing { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; background: #16181c; }
-    .landing .n { font-weight: 600; }
-    .landing .m { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-all; }
-    .landing .ops { margin-top: 8px; }
+    .landing, .source { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; background: #16181c; }
+    .source.selected { border-color: #5a4e3a; background: #1d1b17; }
+    .landing .n, .source .n { font-weight: 600; }
+    .landing .m, .source .m { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-all; }
+    .landing .ops, .source .ops { margin-top: 8px; }
     .empty { color: var(--muted); padding: 12px 4px; }
     .table-wrap { overflow: auto; max-height: 430px; }
     table { width: 100%; border-collapse: collapse; min-width: 720px; }
@@ -121,16 +122,9 @@
   <div class="grid">
     <div class="stack">
       <section class="card">
-        <div class="head"><div class="k">上游订阅</div><span class="st off" id="upstream-state">未配置</span></div>
-        <label class="f">
-          <span>完整 Mihomo 订阅 URL</span>
-          <input id="upstream-url" type="url" autocomplete="off" placeholder="https://provider.example/sub?token=…" />
-        </label>
-        <div class="ops">
-          <button id="btn-save-upstream">保存地址</button>
-          <button class="primary" id="btn-refresh">刷新并发现策略组</button>
-        </div>
-        <p class="sub" id="upstream-hint" style="margin:8px 0 0">URL 仅保存在本机，不会出现在日志或错误消息中。</p>
+        <div class="head"><div class="k">订阅来源</div><button class="primary" id="btn-add-source">添加订阅</button></div>
+        <div id="source-list"></div>
+        <p class="sub" style="margin:8px 0 0">完整地址仅用于本次导入。读取成功后，本机只保存订阅快照和脱敏来源。</p>
       </section>
 
       <section class="card">
@@ -159,7 +153,7 @@
       <div class="k">本地订阅地址</div>
       <div class="big" id="subscription-title">尚未生成</div>
       <div class="url-box">
-        <code id="subscription-url">先刷新上游并保存至少一个管理组</code>
+        <code id="subscription-url">先添加订阅并启用至少一个管理组</code>
         <button id="btn-copy" disabled>复制</button>
       </div>
       <p class="sub" id="subscription-hint" style="margin:8px 0 0">把生成后的 URL 添加到 Mihomo 兼容客户端。</p>
@@ -173,15 +167,26 @@
         <div class="metric"><b id="metric-landings">0</b><span>落地代理</span></div>
         <div class="metric"><b id="metric-source">0</b><span>发现策略组</span></div>
       </div>
-      <p class="sub" id="cache-meta" style="margin:8px 0 0">刷新失败时不会用原订阅旁路。</p>
+      <p class="sub" id="cache-meta" style="margin:8px 0 0">导入或切换失败时继续服务最后成功版本。</p>
     </section>
   </div>
 
   <div class="dock">
     <div class="dock-in">
-      <div class="grow" id="dock-msg" aria-live="polite">配置上游、落地和管理组后，保存即可生成本地订阅。</div>
-      <button id="btn-dock-refresh">刷新上游</button>
-      <button class="primary" id="btn-save-bindings">保存并生成订阅</button>
+      <div class="grow" id="dock-msg" aria-live="polite">选择订阅来源、落地和管理组后，即可启用本地订阅。</div>
+      <button class="primary" id="btn-save-bindings">保存配置并启用</button>
+    </div>
+  </div>
+
+  <div class="modal" id="source-modal" role="dialog" aria-modal="true" aria-labelledby="source-modal-title" aria-describedby="source-modal-hint">
+    <div class="sheet">
+      <div class="head"><div class="k" id="source-modal-title">添加订阅</div><button id="btn-close-source-modal">关闭</button></div>
+      <label class="f"><span>来源名称</span><input id="source-name" maxlength="80" autocomplete="off" placeholder="主力订阅" /></label>
+      <label class="f"><span>完整 Mihomo 订阅 URL</span><input id="source-url" type="url" autocomplete="off" placeholder="https://provider.example/sub?token=…" /></label>
+      <p class="sub" id="source-modal-hint">完整地址仅用于本次导入，读取成功后不会保存。</p>
+      <div class="ops" style="justify-content:flex-end">
+        <button class="primary" id="btn-import-source">保存并读取</button>
+      </div>
     </div>
   </div>
 
@@ -225,7 +230,14 @@ const errorMessages = {
   UPSTREAM_FORMAT_HTML: "上游返回了网页，订阅可能需要登录或已经失效。",
   UPSTREAM_FORMAT_NODE_ONLY: "上游只返回节点，没有完整的 Mihomo 策略组配置。",
   UPSTREAM_FORMAT_UNSUPPORTED: "上游返回的内容不是支持的完整 Mihomo 配置。",
-  SOURCE_CACHE_MISSING: "上游缓存不存在，请重新刷新。",
+  SOURCE_NAME_INVALID: "请输入 1 至 80 个字符的来源名称。",
+  SOURCE_NAME_CONFLICT: "已有同名来源，请换一个名称。",
+  SOURCE_LIMIT_REACHED: "最多保存 20 个来源，请先删除不用的来源。",
+  SOURCE_NOT_FOUND: "这个订阅来源已不存在。",
+  SOURCE_NOT_SELECTED: "请先选择要配置的订阅来源。",
+  SOURCE_NOT_CONFIGURED: "请先为这个来源启用至少一个策略组。",
+  SOURCE_ACTIVE: "正在使用这个来源。请先启用其他来源，再删除它。",
+  SOURCE_CACHE_MISSING: "本地订阅快照不存在，请重新添加这个来源。",
   MANAGED_GROUP_MISSING: "上游订阅已移除一个受管理策略组。",
   FRONT_REFERENCE_MISSING: "前置节点或 provider 已从上游订阅移除。",
   TOPOLOGY_CYCLE: "当前配置会形成代理循环，请调整前置策略。",
@@ -267,7 +279,10 @@ function setBusy(value, message) {
 
 function formatTime(value) {
   if (!value) return "—";
-  return new Date(value * 1000).toLocaleString();
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date(value * 1000));
 }
 
 function bindingFor(group) {
@@ -290,19 +305,21 @@ function ensureBindings() {
 }
 
 function renderPills() {
+  const activeSource = state.sources.find((source) => source.active);
   const items = [
     ["服务 :8788", true],
-    [state.upstream.configured ? "上游已配置" : "上游未配置", state.upstream.configured],
+    [`来源 ${state.sources.length}`, state.sources.length > 0],
+    [activeSource ? `当前 ${activeSource.name}` : "尚未启用来源", !!activeSource],
     [state.subscription.available ? "订阅可用" : "订阅待生成", state.subscription.available],
     [`落地 ${state.landings.length}`, state.landings.length > 0],
-    [`管理组 ${state.bindings.filter((item) => item.enabled).length}`, state.bindings.some((item) => item.enabled)],
+    [`管理组 ${activeSource?.managed_group_count || 0}`, (activeSource?.managed_group_count || 0) > 0],
   ];
   $("pills").innerHTML = items.map(([label, on]) => `<span class="pill ${on ? "on" : "warn"}">${esc(label)}</span>`).join("");
 }
 
 function renderBanner() {
   if (state.last_error) {
-    $("banner").innerHTML = `<div class="banner bad">${esc(errorMessage(state.last_error.code, state.last_error.message))} <code>${esc(state.last_error.code)}</code>${state.subscription.available ? "<br>仍在服务最后成功版本，没有旁路到原订阅。" : ""}</div>`;
+    $("banner").innerHTML = `<div class="banner bad">${esc(errorMessage(state.last_error.code, state.last_error.message))} <code>${esc(state.last_error.code)}</code>${state.subscription.available ? "<br>仍在服务最后成功版本，没有切换到失败来源。" : ""}</div>`;
   } else if (state.subscription.available) {
     $("banner").innerHTML = `<div class="banner ok">本地订阅已生成。客户端更新订阅时会继续经过出口锚点。</div>`;
   } else {
@@ -310,12 +327,31 @@ function renderBanner() {
   }
 }
 
-function renderUpstream() {
-  const configured = state.upstream.configured;
-  $("upstream-state").textContent = configured ? "已配置" : "未配置";
-  $("upstream-state").className = `st ${configured ? "on" : "off"}`;
-  $("upstream-url").placeholder = configured ? `${state.upstream.display_url}（重新填写可替换）` : "https://provider.example/sub?token=…";
-  $("upstream-hint").textContent = configured ? `当前：${state.upstream.display_url}` : "URL 仅保存在本机，不会出现在日志或错误消息中。";
+function renderSources() {
+  if (!state.sources.length) {
+    $("source-list").innerHTML = `<div class="empty">还没有订阅来源。添加后会立即读取策略组，并把快照保存在本机。</div>`;
+    return;
+  }
+  $("source-list").innerHTML = state.sources.map((source) => {
+    const badges = [
+      source.active ? `<span class="st on">正在使用</span>` : "",
+      source.selected && !source.active ? `<span class="st pending">正在配置</span>` : "",
+    ].join("");
+    const actions = [
+      !source.selected ? `<button data-select-source="${esc(source.id)}">选择</button>` : "",
+      !source.active && source.managed_group_count > 0 ? `<button class="primary" data-activate-source="${esc(source.id)}">启用</button>` : "",
+      !source.active ? `<button class="danger" data-delete-source="${esc(source.id)}">删除</button>` : "",
+    ].join("");
+    const setupHint = source.selected && !source.active && source.managed_group_count === 0
+      ? `<div class="m">在右侧启用策略组，然后保存配置。</div>` : "";
+    return `<div class="source ${source.selected ? "selected" : ""}">
+      <div class="n">${esc(source.name)}${badges}</div>
+      <div class="m">${esc(source.display_url)}</div>
+      <div class="m">${source.group_count} 个策略组 · ${source.proxy_count} 个节点 · 导入于 ${esc(formatTime(source.imported_at))}</div>
+      ${setupHint}
+      <div class="ops">${actions}</div>
+    </div>`;
+  }).join("");
 }
 
 function renderLandings() {
@@ -352,7 +388,8 @@ function renderBindings() {
     const binding = bindingFor(group.name);
     const mode = binding.front_hop?.mode || "source";
     const fixed = binding.front_hop?.proxy || "";
-    const status = binding.enabled ? `<span class="st ${state.subscription.available ? "on" : "pending"}">${state.subscription.available ? "已锚定" : "待生成"}</span>` : `<span class="st off">未管理</span>`;
+    const selectedIsActive = state.selected_source_id === state.active_source_id && state.subscription.available;
+    const status = binding.enabled ? `<span class="st ${selectedIsActive ? "on" : "pending"}">${selectedIsActive ? "已启用" : "待启用"}</span>` : `<span class="st off">未管理</span>`;
     const key = encodeURIComponent(group.name);
     return `<tr>
       <td><label class="sw"><span class="sr-only">管理 ${esc(group.name)}</span><input data-enable="${key}" type="checkbox" ${binding.enabled ? "checked" : ""}><i></i></label></td>
@@ -362,7 +399,7 @@ function renderBindings() {
       <td><select aria-label="${esc(group.name)} 固定前置" data-fixed="${key}" ${mode === "fixed" ? "" : "disabled"}>${frontOptions(group.name, fixed)}</select></td>
     </tr>`;
   }).join("");
-  $("binding-rows").innerHTML = rows || `<tr><td colspan="5" class="empty">先配置上游并刷新，策略组会显示在这里。</td></tr>`;
+  $("binding-rows").innerHTML = rows || `<tr><td colspan="5" class="empty">先添加或选择订阅来源，策略组会显示在这里。</td></tr>`;
 }
 
 function collectBindings() {
@@ -384,22 +421,23 @@ function collectBindings() {
 function renderSubscription() {
   const available = state?.subscription?.available;
   $("subscription-title").textContent = available ? "可复制使用" : "尚未生成";
-  $("subscription-url").textContent = available ? state.subscription.url : "先刷新上游并保存至少一个管理组";
+  $("subscription-url").textContent = available ? state.subscription.url : "先添加订阅并启用至少一个管理组";
   $("btn-copy").disabled = busy || !available;
   $("subscription-hint").textContent = available ? "复制到 Mihomo 兼容客户端。配置变化后在客户端手动更新订阅。" : "生成失败时不会返回未经编译的原订阅。";
 }
 
 function renderCache() {
   const report = state.subscription.report;
-  $("cache-title").textContent = state.subscription.available ? "最后成功版本可用" : "无可用版本";
+  const activeSource = state.sources.find((source) => source.active);
+  $("cache-title").textContent = state.subscription.available ? `正在服务：${activeSource?.name || "最后成功版本"}` : "无可用版本";
   $("metric-groups").textContent = report?.counts?.managed_groups || 0;
   $("metric-landings").textContent = state.landings.length;
   $("metric-source").textContent = state.catalog.groups.length;
-  $("cache-meta").textContent = state.last_success_at ? `生成于 ${formatTime(state.last_success_at)}；上游最后刷新 ${formatTime(state.last_refresh_at)}` : "刷新失败时不会用原订阅旁路。";
+  $("cache-meta").textContent = state.last_success_at ? `生成于 ${formatTime(state.last_success_at)}；切换失败时继续服务此版本。` : "导入或切换失败时不会返回未经编译的原订阅。";
 }
 
 function renderAll() {
-  renderPills(); renderBanner(); renderUpstream(); renderLandings(); renderBindings(); renderSubscription(); renderCache();
+  renderPills(); renderBanner(); renderSources(); renderLandings(); renderBindings(); renderSubscription(); renderCache();
 }
 
 async function reloadState() {
@@ -408,27 +446,64 @@ async function reloadState() {
   renderAll();
 }
 
-async function saveUpstreamIfEntered() {
-  const url = $("upstream-url").value.trim();
-  if (!url) {
-    if (!state.upstream.configured) throw new Error("请先填写上游订阅 URL");
-    return;
-  }
-  await api("/api/upstream", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
-  $("upstream-url").value = "";
+function openSourceModal() {
+  $("source-name").value = "";
+  $("source-url").value = "";
+  $("source-modal").classList.add("on");
+  $("source-name").focus();
 }
 
-async function refreshUpstream() {
-  setBusy(true, "正在刷新并验证上游订阅…");
+function closeSourceModal() { $("source-modal").classList.remove("on"); }
+
+async function importSource() {
+  const name = $("source-name").value.trim();
+  const url = $("source-url").value.trim();
+  if (!name) { $("dock-msg").textContent = "请输入来源名称。"; $("source-name").focus(); return; }
+  if (!url) { $("dock-msg").textContent = "请输入完整订阅地址。"; $("source-url").focus(); return; }
+  setBusy(true, "正在读取并验证订阅…");
   try {
-    await saveUpstreamIfEntered();
-    await api("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    await api("/api/sources", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, url }) });
+    closeSourceModal();
     await reloadState();
-    $("dock-msg").textContent = "上游刷新成功，策略组目录已更新。";
+    $("dock-msg").textContent = `已导入「${name}」。选择要管理的策略组，然后保存配置。`;
   } catch (error) {
     await reloadState();
     $("dock-msg").textContent = `${error.message}（${error.code || "ERROR"}）`;
   } finally { setBusy(false); }
+}
+
+async function selectSource(sourceId) {
+  setBusy(true, "正在打开订阅来源…");
+  try {
+    await api(`/api/sources/${encodeURIComponent(sourceId)}/select`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: "{}" });
+    await reloadState();
+    const source = state.sources.find((item) => item.id === sourceId);
+    $("dock-msg").textContent = `正在配置「${source?.name || "订阅来源"}」。`;
+  } catch (error) { $("dock-msg").textContent = error.message; }
+  finally { setBusy(false); }
+}
+
+async function activateSource(sourceId) {
+  setBusy(true, "正在验证并启用订阅来源…");
+  try {
+    await api(`/api/sources/${encodeURIComponent(sourceId)}/activate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    await reloadState();
+    const source = state.sources.find((item) => item.id === sourceId);
+    $("dock-msg").textContent = `已启用「${source?.name || "订阅来源"}」。`;
+  } catch (error) { await reloadState(); $("dock-msg").textContent = `${error.message}（仍在服务原来源）`; }
+  finally { setBusy(false); }
+}
+
+async function deleteSource(sourceId) {
+  const source = state.sources.find((item) => item.id === sourceId);
+  if (!source || !confirm(`删除「${source.name}」？本地快照和策略组配置将被删除，无法恢复。`)) return;
+  setBusy(true, "正在删除订阅来源…");
+  try {
+    await api(`/api/sources/${encodeURIComponent(sourceId)}`, { method: "DELETE" });
+    await reloadState();
+    $("dock-msg").textContent = `已删除「${source.name}」。`;
+  } catch (error) { $("dock-msg").textContent = error.message; }
+  finally { setBusy(false); }
 }
 
 function openLandingModal(landing = null) {
@@ -481,29 +556,41 @@ async function deleteLanding() {
 }
 
 async function saveBindings() {
+  if (!state.selected_source_id) { $("dock-msg").textContent = "请先添加或选择订阅来源。"; return; }
   collectBindings();
-  for (const binding of state.bindings.filter((item) => item.enabled)) {
+  const enabledBindings = state.bindings.filter((item) => item.enabled);
+  if (!enabledBindings.length) { $("dock-msg").textContent = "请至少启用一个策略组。"; return; }
+  for (const binding of enabledBindings) {
     if (!binding.landing_id) { $("dock-msg").textContent = `「${binding.group}」还没选择落地代理。`; return; }
     if (binding.front_hop.mode === "fixed" && !binding.front_hop.proxy) { $("dock-msg").textContent = `「${binding.group}」还没选择固定前置。`; return; }
   }
-  setBusy(true, "正在编译失败关闭订阅…");
+  setBusy(true, "正在验证配置并启用来源…");
   try {
     await api("/api/bindings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bindings: state.bindings }) });
-    await reloadState(); $("dock-msg").textContent = "配置已保存，本地订阅已更新。";
+    await reloadState(); $("dock-msg").textContent = "配置已保存，当前来源已启用。";
   } catch (error) { await reloadState(); $("dock-msg").textContent = `${error.message}（仍保留最后成功版本）`; }
   finally { setBusy(false); }
 }
 
-$("btn-save-upstream").onclick = async () => { setBusy(true, "正在保存上游地址…"); try { await saveUpstreamIfEntered(); await reloadState(); $("dock-msg").textContent = "上游地址已保存。"; } catch (error) { $("dock-msg").textContent = error.message; } finally { setBusy(false); } };
-$("btn-refresh").onclick = refreshUpstream;
-$("btn-dock-refresh").onclick = refreshUpstream;
+$("btn-add-source").onclick = openSourceModal;
+$("btn-close-source-modal").onclick = closeSourceModal;
+$("btn-import-source").onclick = importSource;
 $("btn-save-bindings").onclick = saveBindings;
 $("btn-add-landing").onclick = () => openLandingModal();
 $("btn-close-modal").onclick = closeLandingModal;
 $("btn-save-landing").onclick = saveLanding;
 $("btn-delete-landing").onclick = deleteLanding;
+$("source-modal").onclick = (event) => { if (event.target === $("source-modal")) closeSourceModal(); };
 $("landing-modal").onclick = (event) => { if (event.target === $("landing-modal")) closeLandingModal(); };
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeLandingModal(); });
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSourceModal(); closeLandingModal(); } });
+$("source-list").onclick = (event) => {
+  const selectButton = event.target.closest("[data-select-source]");
+  const activateButton = event.target.closest("[data-activate-source]");
+  const deleteButton = event.target.closest("[data-delete-source]");
+  if (selectButton) selectSource(selectButton.dataset.selectSource);
+  else if (activateButton) activateSource(activateButton.dataset.activateSource);
+  else if (deleteButton) deleteSource(deleteButton.dataset.deleteSource);
+};
 $("landing-list").onclick = (event) => { const button = event.target.closest("[data-edit-landing]"); if (button) openLandingModal(state.landings.find((item) => item.id === button.dataset.editLanding)); };
 $("binding-rows").onchange = (event) => { if (event.target.matches("[data-mode]")) { collectBindings(); renderBindings(); } };
 $("btn-copy").onclick = async () => { try { await navigator.clipboard.writeText(state.subscription.url); $("dock-msg").textContent = "订阅地址已复制。"; } catch { $("dock-msg").textContent = "复制失败，请手动选择地址复制。"; } };

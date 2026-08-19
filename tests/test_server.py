@@ -80,18 +80,25 @@ class GatewayHttpTests(unittest.TestCase):
             )
         )
 
-    def test_http_workflow_configures_compiles_and_serves_subscription(self):
-        status, _, upstream = self.json_request(
-            "/api/upstream",
-            method="PUT",
-            payload={"url": "https://subscription.example.invalid/full.yaml"},
+    def test_http_workflow_imports_compiles_and_serves_subscription(self):
+        status, _, imported = self.json_request(
+            "/api/sources",
+            method="POST",
+            payload={
+                "name": "Fixture source",
+                "url": "https://subscription.example.invalid/full.yaml?token=fixture",
+            },
         )
         self.assertEqual(200, status)
-        self.assertTrue(upstream["ok"])
+        self.assertTrue(imported["ok"])
+        self.assertEqual("Fixture source", imported["source"]["name"])
 
-        status, _, refreshed = self.json_request("/api/refresh", method="POST", payload={})
+        status, _, imported_state = self.json_request("/api/state")
         self.assertEqual(200, status)
-        self.assertEqual(["AI", "Default"], [g["name"] for g in refreshed["catalog"]["groups"]])
+        self.assertEqual(
+            ["AI", "Default"],
+            [g["name"] for g in imported_state["state"]["catalog"]["groups"]],
+        )
 
         status, _, landing_body = self.json_request(
             "/api/landings",
@@ -142,6 +149,94 @@ class GatewayHttpTests(unittest.TestCase):
         self.assertEqual(etag, conditional_headers["ETag"])
         self.assertEqual(b"", conditional_body)
 
+    def test_http_can_select_a_saved_source(self):
+        _, _, first = self.json_request(
+            "/api/sources",
+            method="POST",
+            payload={
+                "name": "Primary",
+                "url": "https://primary.example.invalid/import?token=fixture-a",
+            },
+        )
+        _, _, second = self.json_request(
+            "/api/sources",
+            method="POST",
+            payload={
+                "name": "Backup",
+                "url": "https://backup.example.invalid/import?token=fixture-b",
+            },
+        )
+        self.assertNotEqual(first["source"]["id"], second["source"]["id"])
+
+        status, _, selected = self.json_request(
+            f"/api/sources/{first['source']['id']}/select",
+            method="PUT",
+            payload={},
+        )
+
+        self.assertEqual(200, status)
+        self.assertEqual(first["source"]["id"], selected["source"]["id"])
+        _, _, state = self.json_request("/api/state")
+        self.assertEqual(
+            first["source"]["id"], state["state"]["selected_source_id"]
+        )
+
+    def test_http_activate_source_requires_saved_bindings(self):
+        _, _, imported = self.json_request(
+            "/api/sources",
+            method="POST",
+            payload={
+                "name": "Primary",
+                "url": "https://primary.example.invalid/import?token=fixture",
+            },
+        )
+
+        status, _, activated = self.json_request(
+            f"/api/sources/{imported['source']['id']}/activate",
+            method="POST",
+            payload={},
+        )
+
+        self.assertEqual(422, status)
+        self.assertEqual("SOURCE_NOT_CONFIGURED", activated["error"]["code"])
+
+    def test_http_can_delete_an_inactive_source(self):
+        _, _, imported = self.json_request(
+            "/api/sources",
+            method="POST",
+            payload={
+                "name": "Disposable",
+                "url": "https://source.example.invalid/import?token=fixture",
+            },
+        )
+
+        status, _, deleted = self.json_request(
+            f"/api/sources/{imported['source']['id']}",
+            method="DELETE",
+        )
+
+        self.assertEqual(200, status)
+        self.assertTrue(deleted["ok"])
+        _, _, state = self.json_request("/api/state")
+        self.assertEqual([], state["state"]["sources"])
+
+    def test_legacy_persistent_upstream_routes_are_not_available(self):
+        status, _, configured = self.json_request(
+            "/api/upstream",
+            method="PUT",
+            payload={"url": "https://legacy.example.invalid/?token=fixture"},
+        )
+        refresh_status, _, refreshed = self.json_request(
+            "/api/refresh",
+            method="POST",
+            payload={},
+        )
+
+        self.assertEqual(404, status)
+        self.assertEqual("NOT_FOUND", configured["error"]["code"])
+        self.assertEqual(404, refresh_status)
+        self.assertEqual("NOT_FOUND", refreshed["error"]["code"])
+
     def test_invalid_host_is_rejected_before_api_access(self):
         for host in ("attacker.example", "attacker@127.0.0.1", "127.0.0.1:bad"):
             with self.subTest(host=host):
@@ -174,13 +269,27 @@ class GatewayHttpTests(unittest.TestCase):
         for component_class in ("card", "pill", "grid", "modal", "dock", "sw"):
             self.assertIn(f".{component_class}", html)
         for element_id in (
-            "upstream-url",
+            "source-list",
+            "btn-add-source",
+            "source-modal",
+            "source-name",
+            "source-url",
+            "btn-import-source",
             "landing-list",
             "binding-rows",
             "subscription-url",
             "btn-save-bindings",
         ):
             self.assertIn(f'id="{element_id}"', html)
+        for removed_id in (
+            "upstream-url",
+            "btn-save-upstream",
+            "btn-refresh",
+            "btn-dock-refresh",
+        ):
+            self.assertNotIn(f'id="{removed_id}"', html)
+        self.assertIn("保存并读取", html)
+        self.assertIn("完整地址仅用于本次导入", html)
         self.assertNotIn("/api/repair-dns", html)
         self.assertNotIn("应用到 FlClash", html)
         self.assertIn('UPSTREAM_FETCH_FAILED: "无法获取上游订阅。"', html)

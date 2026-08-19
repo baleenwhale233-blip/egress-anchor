@@ -29,7 +29,8 @@ from .compiler import (
 )
 
 
-STATE_VERSION = 1
+STATE_VERSION = 2
+MAX_SOURCES = 20
 MAX_REDIRECTS = 3
 FETCH_TIMEOUT_SECONDS = 15
 DEFAULT_USER_AGENT = "EgressAnchor/0.1"
@@ -115,9 +116,7 @@ def detect_subscription_format(
     text = body.strip()
     media_type = (content_type or "").split(";", 1)[0].strip().lower()
     lowered = text[:256].lower()
-    if media_type in {"text/html", "application/xhtml+xml"} or lowered.startswith(
-        ("<!doctype html", "<html", "<body")
-    ):
+    if lowered.startswith(("<!doctype html", "<html", "<body")):
         return "html"
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if lines and all(line.lower().startswith(URI_SCHEMES) for line in lines):
@@ -134,6 +133,8 @@ def detect_subscription_format(
             line.lower().startswith(URI_SCHEMES) for line in decoded_lines
         ):
             return "base64"
+    if media_type in {"text/html", "application/xhtml+xml"}:
+        return "html"
     return "unknown"
 
 
@@ -260,24 +261,22 @@ def _format_error(
         "The upstream response is not a supported complete Mihomo configuration.",
         status=422,
     )
+
+
 def _default_state() -> dict[str, Any]:
     return {
         "version": STATE_VERSION,
         "token": secrets.token_urlsafe(32),
-        "upstream": {
-            "url": "",
-            "display_url": "",
-            "etag": None,
-            "last_modified": None,
-        },
+        "sources": [],
+        "selected_source_id": None,
+        "active_source_id": None,
         "landings": [],
         "bindings": [],
         "catalog": {"groups": [], "proxies": [], "providers": []},
         "active_generation": None,
         "active_report": None,
-        "source_updated_at": None,
         "last_success_at": None,
-        "last_refresh_at": None,
+        "last_import_at": None,
         "last_error": None,
     }
 
@@ -319,6 +318,9 @@ class GatewayService:
         os.chmod(self.data_dir, 0o700)
         self.state_path = self.data_dir / "state.json"
         self.source_path = self.data_dir / "source.yaml"
+        self.sources_dir = self.data_dir / "sources"
+        self.sources_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.sources_dir, 0o700)
         self.generations_dir = self.data_dir / "generations"
         self.generations_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.generations_dir, 0o700)
@@ -340,12 +342,92 @@ class GatewayService:
                 "The local gateway state could not be read.",
                 status=500,
             ) from None
-        if not isinstance(state, dict) or state.get("version") != STATE_VERSION:
+        if not isinstance(state, dict):
             raise GatewayError(
                 "STATE_INVALID",
                 "The local gateway state is unsupported.",
                 status=500,
             )
+        if state.get("version") == 1:
+            return self._migrate_v1_state(state)
+        if state.get("version") != STATE_VERSION:
+            raise GatewayError(
+                "STATE_INVALID",
+                "The local gateway state is unsupported.",
+                status=500,
+            )
+        os.chmod(self.state_path, 0o600)
+        return state
+
+    def _migrate_v1_state(self, legacy: Mapping[str, Any]) -> dict[str, Any]:
+        state = _default_state()
+        token = legacy.get("token")
+        if isinstance(token, str) and token:
+            state["token"] = token
+        for field in (
+            "landings",
+            "active_generation",
+            "active_report",
+            "last_success_at",
+            "last_error",
+        ):
+            if field in legacy:
+                state[field] = deepcopy(legacy[field])
+        state["last_import_at"] = legacy.get("last_refresh_at")
+        if self.source_path.exists():
+            try:
+                source_yaml = self.source_path.read_text(encoding="utf-8")
+                catalog = inspect_subscription(source_yaml)
+            except (OSError, CompileError):
+                source_yaml = ""
+                catalog = None
+            if catalog is not None:
+                source_id = secrets.token_hex(6)
+                imported_at = legacy.get("source_updated_at")
+                if not isinstance(imported_at, int):
+                    imported_at = self._timestamp()
+                display_url = ""
+                upstream = legacy.get("upstream")
+                if isinstance(upstream, Mapping):
+                    legacy_url = upstream.get("url")
+                    try:
+                        display_url = _display_url(_validated_http_url(legacy_url))
+                    except GatewayError:
+                        display_url = ""
+                bindings = legacy.get("bindings")
+                if not isinstance(bindings, list):
+                    bindings = []
+                state["sources"] = [
+                    {
+                        "id": source_id,
+                        "name": "已迁移订阅",
+                        "display_url": display_url,
+                        "imported_at": imported_at,
+                        "catalog": deepcopy(catalog),
+                        "bindings": deepcopy(bindings),
+                    }
+                ]
+                state["selected_source_id"] = source_id
+                state["active_source_id"] = (
+                    source_id if state.get("active_generation") else None
+                )
+                state["catalog"] = deepcopy(catalog)
+                state["bindings"] = deepcopy(bindings)
+                snapshot_path = self._source_snapshot_path(source_id)
+                if snapshot_path is None:
+                    raise GatewayError(
+                        "STATE_INVALID",
+                        "The local gateway state could not be migrated.",
+                        status=500,
+                    )
+                snapshot_path.parent.mkdir(parents=True, exist_ok=False)
+                os.chmod(snapshot_path.parent, 0o700)
+                _atomic_write(snapshot_path, source_yaml)
+        self._save_state_value(state)
+        try:
+            self.source_path.unlink()
+        except FileNotFoundError:
+            pass
         os.chmod(self.state_path, 0o600)
         return state
 
@@ -368,8 +450,12 @@ class GatewayService:
             return None
         return self.generations_dir / generation / "compiled.yaml"
 
+    def _source_snapshot_path(self, source_id: Any) -> Optional[Path]:
+        if not isinstance(source_id, str) or not re.fullmatch(r"[0-9a-f]{12}", source_id):
+            return None
+        return self.sources_dir / source_id / "source.yaml"
+
     def _record_error(self, error: GatewayError) -> None:
-        self._state["last_refresh_at"] = self._timestamp()
         self._state["last_error"] = {
             "code": error.code,
             "message": error.safe_message,
@@ -379,7 +465,29 @@ class GatewayService:
 
     def public_state(self) -> Mapping[str, Any]:
         with self._lock:
-            upstream = self._state["upstream"]
+            selected_source_id = self._state.get("selected_source_id")
+            active_source_id = self._state.get("active_source_id")
+            sources = []
+            for source in self._state.get("sources", []):
+                catalog = source.get("catalog") or {}
+                sources.append(
+                    {
+                        "id": source["id"],
+                        "name": source["name"],
+                        "display_url": source.get("display_url", ""),
+                        "imported_at": source.get("imported_at"),
+                        "group_count": len(catalog.get("groups") or []),
+                        "proxy_count": len(catalog.get("proxies") or []),
+                        "provider_count": len(catalog.get("providers") or []),
+                        "managed_group_count": sum(
+                            1
+                            for binding in source.get("bindings", [])
+                            if binding.get("enabled")
+                        ),
+                        "selected": source["id"] == selected_source_id,
+                        "active": source["id"] == active_source_id,
+                    }
+                )
             landings = []
             for landing in self._state["landings"]:
                 landings.append(
@@ -398,10 +506,9 @@ class GatewayService:
             compiled_path = self._compiled_path(active)
             available = bool(compiled_path and compiled_path.exists())
             return {
-                "upstream": {
-                    "configured": bool(upstream.get("url")),
-                    "display_url": upstream.get("display_url", ""),
-                },
+                "sources": sources,
+                "selected_source_id": selected_source_id,
+                "active_source_id": active_source_id,
                 "landings": landings,
                 "bindings": deepcopy(self._state["bindings"]),
                 "catalog": deepcopy(self._state["catalog"]),
@@ -412,22 +519,262 @@ class GatewayService:
                     "generation": active,
                     "report": deepcopy(self._state.get("active_report")),
                 },
-                "source_updated_at": self._state.get("source_updated_at"),
                 "last_success_at": self._state.get("last_success_at"),
-                "last_refresh_at": self._state.get("last_refresh_at"),
+                "last_import_at": self._state.get("last_import_at"),
                 "last_error": deepcopy(self._state.get("last_error")),
             }
 
-    def configure_upstream(self, url: Any) -> Mapping[str, Any]:
+    def import_source(self, name: Any, url: Any) -> Mapping[str, Any]:
         with self._lock:
+            if not isinstance(name, str) or not name.strip() or len(name.strip()) > 80:
+                raise GatewayError(
+                    "SOURCE_NAME_INVALID",
+                    "Enter a source name between 1 and 80 characters.",
+                )
+            name = name.strip()
             url = _validated_http_url(url)
-            if url != self._state["upstream"].get("url"):
-                self._state["upstream"]["etag"] = None
-                self._state["upstream"]["last_modified"] = None
-            self._state["upstream"]["url"] = url
-            self._state["upstream"]["display_url"] = _display_url(url)
+            sources = self._state.get("sources", [])
+            if len(sources) >= MAX_SOURCES:
+                raise GatewayError(
+                    "SOURCE_LIMIT_REACHED",
+                    "Remove a saved source before importing another one.",
+                )
+            if any(source.get("name") == name for source in sources):
+                raise GatewayError(
+                    "SOURCE_NAME_CONFLICT",
+                    "Choose a unique source name.",
+                )
+            try:
+                fetched = self.fetcher(url, etag=None, last_modified=None)
+                if fetched.not_modified:
+                    raise GatewayError(
+                        "UPSTREAM_NOT_MODIFIED_INVALID",
+                        "The one-time import did not return a subscription body.",
+                        status=502,
+                    )
+                source_yaml = fetched.body
+                try:
+                    catalog = inspect_subscription(source_yaml)
+                except CompileError as exc:
+                    if exc.code in {"SOURCE_NOT_MAPPING", "FULL_CONFIG_REQUIRED"}:
+                        raise _format_error(
+                            source_yaml,
+                            content_type=fetched.content_type,
+                            compiler_code=exc.code,
+                        ) from None
+                    raise
+                source_id = secrets.token_hex(6)
+                while any(source.get("id") == source_id for source in sources):
+                    source_id = secrets.token_hex(6)
+                imported_at = self._timestamp()
+                candidate = deepcopy(self._state)
+                candidate.setdefault("sources", []).append(
+                    {
+                        "id": source_id,
+                        "name": name,
+                        "display_url": _display_url(url),
+                        "imported_at": imported_at,
+                        "catalog": deepcopy(catalog),
+                        "bindings": [],
+                    }
+                )
+                candidate["selected_source_id"] = source_id
+                candidate["catalog"] = deepcopy(catalog)
+                candidate["bindings"] = []
+                candidate["last_import_at"] = imported_at
+                candidate["last_error"] = None
+                snapshot_path = self._source_snapshot_path(source_id)
+                if snapshot_path is None:
+                    raise GatewayError(
+                        "SOURCE_ID_INVALID",
+                        "The imported source could not be stored.",
+                        status=500,
+                    )
+                snapshot_path.parent.mkdir(parents=True, exist_ok=False)
+                os.chmod(snapshot_path.parent, 0o700)
+                _atomic_write(snapshot_path, source_yaml)
+                self._state = candidate
+                self._save_state()
+                return next(
+                    source
+                    for source in self.public_state()["sources"]
+                    if source["id"] == source_id
+                )
+            except GatewayError as exc:
+                self._record_error(exc)
+                raise
+            except CompileError as exc:
+                error = GatewayError(exc.code, exc.safe_message, status=422)
+                self._record_error(error)
+                raise error from None
+            except Exception:
+                error = GatewayError(
+                    "UPSTREAM_FETCH_FAILED",
+                    "The subscription could not be imported.",
+                    status=502,
+                )
+                self._record_error(error)
+                raise error from None
+
+    def select_source(self, source_id: Any) -> Mapping[str, Any]:
+        with self._lock:
+            source = next(
+                (
+                    item
+                    for item in self._state.get("sources", [])
+                    if item.get("id") == source_id
+                ),
+                None,
+            )
+            if source is None:
+                raise GatewayError(
+                    "SOURCE_NOT_FOUND",
+                    "The saved source was not found.",
+                    status=404,
+                )
+            candidate = deepcopy(self._state)
+            selected = next(
+                item for item in candidate["sources"] if item["id"] == source_id
+            )
+            candidate["selected_source_id"] = source_id
+            candidate["catalog"] = deepcopy(selected["catalog"])
+            candidate["bindings"] = deepcopy(selected.get("bindings", []))
+            candidate["last_error"] = None
+            self._state = candidate
             self._save_state()
-            return self.public_state()["upstream"]
+            return next(
+                item
+                for item in self.public_state()["sources"]
+                if item["id"] == source_id
+            )
+
+    def activate_source(self, source_id: Any) -> Mapping[str, Any]:
+        with self._lock:
+            source = next(
+                (
+                    item
+                    for item in self._state.get("sources", [])
+                    if item.get("id") == source_id
+                ),
+                None,
+            )
+            if source is None:
+                raise GatewayError(
+                    "SOURCE_NOT_FOUND",
+                    "The saved source was not found.",
+                    status=404,
+                )
+            snapshot_path = self._source_snapshot_path(source_id)
+            if snapshot_path is None or not snapshot_path.exists():
+                raise GatewayError(
+                    "SOURCE_CACHE_MISSING",
+                    "The saved source snapshot is unavailable.",
+                    status=503,
+                )
+            try:
+                source_yaml = snapshot_path.read_text(encoding="utf-8")
+                candidate = deepcopy(self._state)
+                selected = next(
+                    item for item in candidate["sources"] if item["id"] == source_id
+                )
+                candidate["selected_source_id"] = source_id
+                candidate["catalog"] = deepcopy(selected["catalog"])
+                candidate["bindings"] = deepcopy(selected.get("bindings", []))
+                result = self._compiled_state(
+                    candidate,
+                    source_yaml,
+                    source=selected,
+                )
+                if result is None:
+                    raise GatewayError(
+                        "SOURCE_NOT_CONFIGURED",
+                        "Choose at least one managed group before activating this source.",
+                        status=422,
+                    )
+                candidate["active_source_id"] = source_id
+                candidate["last_error"] = None
+                self._save_state_value(candidate)
+                self._state = candidate
+                return {"ok": True, "compiled": True, "source_id": source_id}
+            except GatewayError as exc:
+                self._record_error(exc)
+                raise
+            except OSError:
+                error = GatewayError(
+                    "SOURCE_CACHE_MISSING",
+                    "The saved source snapshot is unavailable.",
+                    status=503,
+                )
+                self._record_error(error)
+                raise error from None
+
+    def delete_source(self, source_id: Any) -> None:
+        with self._lock:
+            source = next(
+                (
+                    item
+                    for item in self._state.get("sources", [])
+                    if item.get("id") == source_id
+                ),
+                None,
+            )
+            if source is None:
+                raise GatewayError(
+                    "SOURCE_NOT_FOUND",
+                    "The saved source was not found.",
+                    status=404,
+                )
+            if self._state.get("active_source_id") == source_id:
+                raise GatewayError(
+                    "SOURCE_ACTIVE",
+                    "Activate another source before deleting this one.",
+                    status=409,
+                )
+            candidate = deepcopy(self._state)
+            candidate["sources"] = [
+                item for item in candidate["sources"] if item["id"] != source_id
+            ]
+            if candidate.get("selected_source_id") == source_id:
+                next_selected = next(
+                    (
+                        item
+                        for item in candidate["sources"]
+                        if item["id"] == candidate.get("active_source_id")
+                    ),
+                    candidate["sources"][0] if candidate["sources"] else None,
+                )
+                if next_selected is None:
+                    candidate["selected_source_id"] = None
+                    candidate["catalog"] = {
+                        "groups": [],
+                        "proxies": [],
+                        "providers": [],
+                    }
+                    candidate["bindings"] = []
+                else:
+                    candidate["selected_source_id"] = next_selected["id"]
+                    candidate["catalog"] = deepcopy(next_selected["catalog"])
+                    candidate["bindings"] = deepcopy(
+                        next_selected.get("bindings", [])
+                    )
+            candidate["last_error"] = None
+            snapshot_path = self._source_snapshot_path(source_id)
+            source_dir = snapshot_path.parent if snapshot_path is not None else None
+            deleted_dir = None
+            if source_dir is not None and source_dir.exists():
+                deleted_dir = self.sources_dir / (
+                    f".delete-{source_id}-{secrets.token_hex(4)}"
+                )
+                os.replace(source_dir, deleted_dir)
+            try:
+                self._save_state_value(candidate)
+            except Exception:
+                if deleted_dir is not None and deleted_dir.exists():
+                    os.replace(deleted_dir, source_dir)
+                raise
+            self._state = candidate
+            if deleted_dir is not None:
+                shutil.rmtree(deleted_dir, ignore_errors=True)
 
     def upsert_landing(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         with self._lock:
@@ -486,12 +833,28 @@ class GatewayService:
                     "udp": bool(payload.get("udp", True)),
                 }
             )
-            if self.source_path.exists() and any(
+            active_source_id = candidate.get("active_source_id")
+            active_source = next(
+                (
+                    source
+                    for source in candidate.get("sources", [])
+                    if source.get("id") == active_source_id
+                ),
+                None,
+            )
+            if active_source is not None and any(
                 binding.get("enabled") and binding.get("landing_id") == landing_id
-                for binding in candidate["bindings"]
+                for binding in active_source.get("bindings", [])
             ):
-                source_yaml = self.source_path.read_text(encoding="utf-8")
-                self._compiled_state(candidate, source_yaml)
+                snapshot_path = self._source_snapshot_path(active_source_id)
+                if snapshot_path is None or not snapshot_path.exists():
+                    raise GatewayError(
+                        "SOURCE_CACHE_MISSING",
+                        "The active source snapshot is unavailable.",
+                        status=503,
+                    )
+                source_yaml = snapshot_path.read_text(encoding="utf-8")
+                self._compiled_state(candidate, source_yaml, source=active_source)
             candidate["last_error"] = None
             self._state = candidate
             self._save_state()
@@ -515,14 +878,35 @@ class GatewayService:
                     status=404,
                 )
             affected = False
-            for binding in candidate["bindings"]:
-                if binding.get("landing_id") == landing_id:
-                    affected = affected or bool(binding.get("enabled"))
-                    binding["enabled"] = False
-                    binding["landing_id"] = ""
+            if candidate.get("sources"):
+                for source in candidate["sources"]:
+                    for binding in source.get("bindings", []):
+                        if binding.get("landing_id") == landing_id:
+                            if source["id"] == candidate.get("active_source_id"):
+                                affected = affected or bool(binding.get("enabled"))
+                            binding["enabled"] = False
+                            binding["landing_id"] = ""
+                selected = next(
+                    (
+                        source
+                        for source in candidate["sources"]
+                        if source["id"] == candidate.get("selected_source_id")
+                    ),
+                    None,
+                )
+                candidate["bindings"] = deepcopy(
+                    selected.get("bindings", []) if selected is not None else []
+                )
+            else:
+                for binding in candidate["bindings"]:
+                    if binding.get("landing_id") == landing_id:
+                        affected = affected or bool(binding.get("enabled"))
+                        binding["enabled"] = False
+                        binding["landing_id"] = ""
             if affected:
                 candidate["active_generation"] = None
                 candidate["active_report"] = None
+                candidate["active_source_id"] = None
             candidate["last_error"] = None
             self._state = candidate
             self._save_state()
@@ -558,10 +942,16 @@ class GatewayService:
             )
         return normalized
 
-    def _policy_for_state(self, state: Mapping[str, Any]) -> Optional[dict[str, Any]]:
+    def _policy_for_state(
+        self,
+        state: Mapping[str, Any],
+        *,
+        source: Optional[Mapping[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
         landings = {landing["id"]: landing for landing in state["landings"]}
         managed = {}
-        for binding in state["bindings"]:
+        bindings = source.get("bindings", []) if source is not None else state["bindings"]
+        for binding in bindings:
             if not binding.get("enabled"):
                 continue
             landing = landings.get(binding.get("landing_id"))
@@ -619,11 +1009,11 @@ class GatewayService:
         self,
         state: dict[str, Any],
         source_yaml: str,
+        *,
+        source: Optional[Mapping[str, Any]] = None,
     ) -> Optional[CompileResult]:
-        policy = self._policy_for_state(state)
+        policy = self._policy_for_state(state, source=source)
         if policy is None:
-            state["active_generation"] = None
-            state["active_report"] = None
             return None
         try:
             result = compile_subscription(source_yaml, policy)
@@ -635,93 +1025,60 @@ class GatewayService:
         state["last_success_at"] = self._timestamp()
         return result
 
-    def refresh(self) -> Mapping[str, Any]:
-        with self._lock:
-            upstream = self._state["upstream"]
-            if not upstream.get("url"):
-                raise GatewayError("UPSTREAM_NOT_CONFIGURED", "Add an upstream subscription first.")
-            try:
-                fetched = self.fetcher(
-                    upstream["url"],
-                    etag=upstream.get("etag"),
-                    last_modified=upstream.get("last_modified"),
-                )
-                if fetched.not_modified:
-                    if not self.source_path.exists():
-                        raise GatewayError(
-                            "SOURCE_CACHE_MISSING",
-                            "The upstream returned not-modified but no source cache exists.",
-                            status=502,
-                        )
-                    source_yaml = self.source_path.read_text(encoding="utf-8")
-                else:
-                    source_yaml = fetched.body
-                try:
-                    catalog = inspect_subscription(source_yaml)
-                except CompileError as exc:
-                    if exc.code in {"SOURCE_NOT_MAPPING", "FULL_CONFIG_REQUIRED"}:
-                        raise _format_error(
-                            source_yaml,
-                            content_type=fetched.content_type,
-                            compiler_code=exc.code,
-                        ) from None
-                    raise
-                candidate = deepcopy(self._state)
-                candidate["catalog"] = deepcopy(catalog)
-                candidate["source_updated_at"] = self._timestamp()
-                candidate["last_refresh_at"] = self._timestamp()
-                candidate["last_error"] = None
-                if not fetched.not_modified:
-                    candidate["upstream"]["etag"] = fetched.etag
-                    candidate["upstream"]["last_modified"] = fetched.last_modified
-                result = self._compiled_state(candidate, source_yaml)
-                _atomic_write(self.source_path, source_yaml)
-                self._state = candidate
-                self._save_state()
-                return {
-                    "ok": True,
-                    "compiled": result is not None,
-                    "catalog": deepcopy(catalog),
-                }
-            except GatewayError as exc:
-                self._record_error(exc)
-                raise
-            except CompileError as exc:
-                error = GatewayError(exc.code, exc.safe_message, status=422)
-                self._record_error(error)
-                raise error from None
-            except Exception:
-                error = GatewayError(
-                    "UPSTREAM_FETCH_FAILED",
-                    "The upstream subscription could not be refreshed.",
-                    status=502,
-                )
-                self._record_error(error)
-                raise error from None
-
     def update_bindings(self, bindings: Any) -> Mapping[str, Any]:
         with self._lock:
             normalized = self._normalized_bindings(bindings)
             candidate = deepcopy(self._state)
             candidate["bindings"] = normalized
-            if self.source_path.exists():
-                source_yaml = self.source_path.read_text(encoding="utf-8")
-                try:
-                    result = self._compiled_state(candidate, source_yaml)
-                except GatewayError as exc:
-                    candidate["last_error"] = {
-                        "code": exc.code,
-                        "message": exc.safe_message,
-                        "at": self._timestamp(),
-                    }
-                    self._state = candidate
-                    self._save_state()
-                    raise
+            selected_source_id = candidate.get("selected_source_id")
+            selected_source = next(
+                (
+                    source
+                    for source in candidate.get("sources", [])
+                    if source.get("id") == selected_source_id
+                ),
+                None,
+            )
+            if selected_source is None:
+                raise GatewayError(
+                    "SOURCE_NOT_SELECTED",
+                    "Select a saved source before editing group bindings.",
+                    status=422,
+                )
+            selected_source["bindings"] = deepcopy(normalized)
+            snapshot_path = self._source_snapshot_path(selected_source_id)
+            if snapshot_path is None or not snapshot_path.exists():
+                raise GatewayError(
+                    "SOURCE_CACHE_MISSING",
+                    "The selected source snapshot is unavailable.",
+                    status=503,
+                )
+            source_yaml = snapshot_path.read_text(encoding="utf-8")
+            try:
+                result = self._compiled_state(
+                    candidate,
+                    source_yaml,
+                    source=selected_source,
+                )
+            except GatewayError as exc:
+                candidate["last_error"] = {
+                    "code": exc.code,
+                    "message": exc.safe_message,
+                    "at": self._timestamp(),
+                }
+                self._save_state_value(candidate)
+                self._state = candidate
+                raise
+            if result is None:
+                if self._state.get("active_source_id") == selected_source_id:
+                    candidate["active_generation"] = None
+                    candidate["active_report"] = None
+                    candidate["active_source_id"] = None
             else:
-                result = None
+                candidate["active_source_id"] = selected_source_id
             candidate["last_error"] = None
+            self._save_state_value(candidate)
             self._state = candidate
-            self._save_state()
             return {"ok": True, "compiled": result is not None}
 
     def read_subscription(self, token: str) -> str:

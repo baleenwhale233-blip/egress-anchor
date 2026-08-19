@@ -21,7 +21,8 @@ compile_subscription(source_yaml, policy) -> CompileResult
 
 - Chinese management UI on `127.0.0.1:8788`
 - tokenized `/sub/<token>` subscription endpoint
-- upstream group discovery
+- one-time import of up to 20 local source snapshots
+- client-style selection and fail-closed source activation
 - HTTP/SOCKS5 landing management
 - `source`, `fixed`, `automatic`, and `direct` front-hop policies
 - last-known-good compiled generations
@@ -71,11 +72,14 @@ python3 app.py
 
 Open <http://127.0.0.1:8788> and follow the page:
 
-1. Save one complete Mihomo subscription URL and refresh it.
-2. Add an HTTP or SOCKS5 landing proxy.
-3. Enable selected policy groups and choose their front-hop policy.
-4. Save to generate the local subscription URL.
-5. Copy that URL into a Mihomo-compatible client.
+1. Choose **添加订阅**, enter a name and a complete Mihomo subscription URL,
+   then choose **保存并读取**.
+2. The URL is used once and discarded after the validated snapshot is stored.
+3. Add an HTTP or SOCKS5 landing proxy.
+4. Enable selected policy groups, choose their front-hop policy, and save to
+   activate that source.
+5. Import more sources when needed and switch between their saved snapshots.
+6. Copy the stable local URL into a Mihomo-compatible client.
 
 Runtime state is stored under the ignored `dev-data/` directory by default.
 The state and generated client YAML contain plaintext landing credentials and
@@ -140,8 +144,9 @@ Run the standard-library suite:
 python3 -m unittest discover -s tests -v
 ```
 
-Fixtures cover compiler behavior plus gateway state, LKG refresh failures,
-loopback HTTP APIs, Host validation, tokenized delivery, and the management UI.
+Fixtures cover compiler behavior plus source import and switching, URL-free
+state migration, LKG activation failures, loopback HTTP APIs, Host validation,
+tokenized delivery, and the management UI.
 
 Tests do not read FlClash files, preferences, databases, controllers, production
 state, or network services.

@@ -14,6 +14,7 @@ class UserAgentSubscriptionHandler(BaseHTTPRequestHandler):
     source = ""
     user_agents = []
     always_yaml = False
+    force_content_type = None
 
     def log_message(self, _format, *_args):
         return
@@ -28,6 +29,7 @@ class UserAgentSubscriptionHandler(BaseHTTPRequestHandler):
             uri_list = b"ss://fixture-a\nvmess://fixture-b"
             body = base64.b64encode(uri_list)
             content_type = "text/plain"
+        content_type = type(self).force_content_type or content_type
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -72,6 +74,35 @@ class SubscriptionFormatTests(unittest.TestCase):
         self.assertEqual(
             ["EgressAnchor/0.1", "clash.meta"],
             UserAgentSubscriptionHandler.user_agents,
+        )
+
+    def test_fetch_retries_when_subscription_bodies_are_mislabeled_as_html(self):
+        class MislabeledSubscriptionHandler(UserAgentSubscriptionHandler):
+            pass
+
+        source = (FIXTURES / "inline.yaml").read_text(encoding="utf-8")
+        MislabeledSubscriptionHandler.source = source
+        MislabeledSubscriptionHandler.user_agents = []
+        MislabeledSubscriptionHandler.always_yaml = False
+        MislabeledSubscriptionHandler.force_content_type = "text/html"
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), MislabeledSubscriptionHandler
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        self.addCleanup(lambda: thread.join(timeout=3))
+
+        result = fetch_subscription(
+            f"http://127.0.0.1:{server.server_port}/subscription"
+        )
+
+        self.assertEqual(source, result.body)
+        self.assertEqual("text/html", result.content_type)
+        self.assertEqual(
+            ["EgressAnchor/0.1", "clash.meta"],
+            MislabeledSubscriptionHandler.user_agents,
         )
 
     def test_fetch_does_not_retry_a_yaml_response(self):

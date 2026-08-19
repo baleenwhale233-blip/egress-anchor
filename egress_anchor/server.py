@@ -194,9 +194,23 @@ def _handler_class(service: GatewayService, static_dir: Path):
             def action():
                 path = urllib.parse.urlsplit(self.path).path
                 payload = self._read_json()
-                if path == "/api/refresh":
-                    result = service.refresh()
-                    self._send_json(200, result)
+                source_prefix = "/api/sources/"
+                source_suffix = "/activate"
+                if path.startswith(source_prefix) and path.endswith(source_suffix):
+                    source_id = path[
+                        len(source_prefix) : -len(source_suffix)
+                    ]
+                    if source_id and "/" not in source_id:
+                        result = service.activate_source(
+                            urllib.parse.unquote(source_id)
+                        )
+                        self._send_json(200, result)
+                        return
+                if path == "/api/sources":
+                    source = service.import_source(
+                        payload.get("name"), payload.get("url")
+                    )
+                    self._send_json(200, {"ok": True, "source": source})
                     return
                 if path == "/api/landings":
                     landing = service.upsert_landing(payload)
@@ -210,10 +224,18 @@ def _handler_class(service: GatewayService, static_dir: Path):
             def action():
                 path = urllib.parse.urlsplit(self.path).path
                 payload = self._read_json()
-                if path == "/api/upstream":
-                    upstream = service.configure_upstream(payload.get("url"))
-                    self._send_json(200, {"ok": True, "upstream": upstream})
-                    return
+                source_prefix = "/api/sources/"
+                source_suffix = "/select"
+                if path.startswith(source_prefix) and path.endswith(source_suffix):
+                    source_id = path[
+                        len(source_prefix) : -len(source_suffix)
+                    ]
+                    if source_id and "/" not in source_id:
+                        source = service.select_source(
+                            urllib.parse.unquote(source_id)
+                        )
+                        self._send_json(200, {"ok": True, "source": source})
+                        return
                 if path == "/api/bindings":
                     result = service.update_bindings(payload.get("bindings"))
                     self._send_json(200, result)
@@ -225,6 +247,13 @@ def _handler_class(service: GatewayService, static_dir: Path):
         def do_DELETE(self):
             def action():
                 path = urllib.parse.urlsplit(self.path).path
+                source_prefix = "/api/sources/"
+                if path.startswith(source_prefix):
+                    source_id = path.removeprefix(source_prefix)
+                    if source_id and "/" not in source_id:
+                        service.delete_source(urllib.parse.unquote(source_id))
+                        self._send_json(200, {"ok": True})
+                        return
                 prefix = "/api/landings/"
                 if path.startswith(prefix):
                     service.delete_landing(urllib.parse.unquote(path.removeprefix(prefix)))
