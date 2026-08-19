@@ -184,6 +184,7 @@ class GatewayHttpTests(unittest.TestCase):
         self.assertNotIn("/api/repair-dns", html)
         self.assertNotIn("应用到 FlClash", html)
         self.assertIn('UPSTREAM_FETCH_FAILED: "无法获取上游订阅。"', html)
+        self.assertIn('UPSTREAM_FORMAT_BASE64: "上游返回了 Base64 通用订阅', html)
 
 
 if __name__ == "__main__":

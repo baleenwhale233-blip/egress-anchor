@@ -191,6 +191,39 @@ class GatewayServiceTests(unittest.TestCase):
         self.assertEqual(before, service.read_subscription(token))
         self.assertTrue(service.public_state()["subscription"]["available"])
 
+    def test_scalar_subscription_formats_return_specific_safe_errors(self):
+        encoded = "c3M6Ly9maXh0dXJlLWEKdm1lc3M6Ly9maXh0dXJlLWI="
+        cases = {
+            "UPSTREAM_FORMAT_BASE64": FetchResult(encoded, content_type="text/plain"),
+            "UPSTREAM_FORMAT_URI_LIST": FetchResult(
+                "ss://fixture-a\nvmess://fixture-b", content_type="text/plain"
+            ),
+            "UPSTREAM_FORMAT_HTML": FetchResult(
+                "<html><body>login required</body></html>",
+                content_type="text/html",
+            ),
+            "UPSTREAM_FORMAT_NODE_ONLY": FetchResult(
+                "- {name: Fixture, type: socks5, server: 192.0.2.200, port: 1080}\n",
+                content_type="application/yaml",
+            ),
+            "UPSTREAM_FORMAT_UNSUPPORTED": FetchResult(
+                "temporary provider error", content_type="text/plain"
+            ),
+        }
+
+        for expected_code, response in cases.items():
+            with self.subTest(expected_code=expected_code):
+                service = GatewayService(
+                    Path(self.temp.name) / expected_code,
+                    fetcher=QueueFetcher(response),
+                )
+                service.configure_upstream(
+                    "https://subscription.example.invalid/full.yaml"
+                )
+                with self.assertRaises(GatewayError) as raised:
+                    service.refresh()
+                self.assertEqual(expected_code, raised.exception.code)
+
     def test_disabling_all_bindings_stops_serving_the_old_generation(self):
         service, _ = self.service(FetchResult(self.source))
         service.configure_upstream("https://subscription.example.invalid/full.yaml")

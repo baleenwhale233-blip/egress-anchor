@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from copy import deepcopy
 from dataclasses import dataclass
 import hmac
@@ -31,6 +32,21 @@ from .compiler import (
 STATE_VERSION = 1
 MAX_REDIRECTS = 3
 FETCH_TIMEOUT_SECONDS = 15
+DEFAULT_USER_AGENT = "EgressAnchor/0.1"
+MIHOMO_USER_AGENT = "clash.meta"
+URI_SCHEMES = (
+    "ss://",
+    "ssr://",
+    "vmess://",
+    "vless://",
+    "trojan://",
+    "hysteria://",
+    "hysteria2://",
+    "hy2://",
+    "tuic://",
+    "socks://",
+    "socks5://",
+)
 
 
 @dataclass(frozen=True)
@@ -39,6 +55,7 @@ class FetchResult:
     etag: Optional[str] = None
     last_modified: Optional[str] = None
     not_modified: bool = False
+    content_type: Optional[str] = None
 
 
 class GatewayError(RuntimeError):
@@ -89,17 +106,48 @@ def _display_url(url: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, host, path, suffix, ""))
 
 
-def fetch_subscription(
+def detect_subscription_format(
+    body: str,
+    *,
+    content_type: Optional[str] = None,
+) -> str:
+    """Classify common non-Mihomo subscription response shapes."""
+    text = body.strip()
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    lowered = text[:256].lower()
+    if media_type in {"text/html", "application/xhtml+xml"} or lowered.startswith(
+        ("<!doctype html", "<html", "<body")
+    ):
+        return "html"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if lines and all(line.lower().startswith(URI_SCHEMES) for line in lines):
+        return "uri-list"
+    compact = "".join(text.split())
+    if len(compact) >= 16 and re.fullmatch(r"[A-Za-z0-9+/_=-]+", compact):
+        padded = compact + ("=" * (-len(compact) % 4))
+        try:
+            decoded = base64.urlsafe_b64decode(padded).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            decoded = ""
+        decoded_lines = [line.strip() for line in decoded.splitlines() if line.strip()]
+        if decoded_lines and all(
+            line.lower().startswith(URI_SCHEMES) for line in decoded_lines
+        ):
+            return "base64"
+    return "unknown"
+
+
+def _fetch_subscription_once(
     url: str,
     *,
     etag: Optional[str] = None,
     last_modified: Optional[str] = None,
+    user_agent: str,
 ) -> FetchResult:
-    """Fetch a bounded UTF-8 subscription without exposing its URL in errors."""
     url = _validated_http_url(url)
     headers = {
         "Accept": "application/yaml, text/yaml, text/plain, */*",
-        "User-Agent": "EgressAnchor/0.1",
+        "User-Agent": user_agent,
     }
     if etag:
         headers["If-None-Match"] = etag
@@ -128,6 +176,7 @@ def fetch_subscription(
                 text,
                 etag=response.headers.get("ETag"),
                 last_modified=response.headers.get("Last-Modified"),
+                content_type=response.headers.get("Content-Type"),
             )
     except urllib.error.HTTPError as exc:
         if exc.code == 304:
@@ -147,6 +196,70 @@ def fetch_subscription(
         ) from None
 
 
+def fetch_subscription(
+    url: str,
+    *,
+    etag: Optional[str] = None,
+    last_modified: Optional[str] = None,
+) -> FetchResult:
+    """Fetch a subscription and retry generic node formats as a Mihomo client."""
+    primary = _fetch_subscription_once(
+        url,
+        etag=etag,
+        last_modified=last_modified,
+        user_agent=DEFAULT_USER_AGENT,
+    )
+    if primary.not_modified:
+        return primary
+    detected = detect_subscription_format(
+        primary.body,
+        content_type=primary.content_type,
+    )
+    if detected not in {"base64", "uri-list"}:
+        return primary
+    return _fetch_subscription_once(
+        url,
+        etag=etag,
+        last_modified=last_modified,
+        user_agent=MIHOMO_USER_AGENT,
+    )
+
+
+def _format_error(
+    source_yaml: str,
+    *,
+    content_type: Optional[str],
+    compiler_code: str,
+) -> GatewayError:
+    detected = detect_subscription_format(source_yaml, content_type=content_type)
+    errors = {
+        "base64": (
+            "UPSTREAM_FORMAT_BASE64",
+            "The upstream returned a Base64 subscription instead of Mihomo YAML.",
+        ),
+        "uri-list": (
+            "UPSTREAM_FORMAT_URI_LIST",
+            "The upstream returned a URI node list instead of Mihomo YAML.",
+        ),
+        "html": (
+            "UPSTREAM_FORMAT_HTML",
+            "The upstream returned an HTML page instead of a subscription.",
+        ),
+    }
+    if detected in errors:
+        code, message = errors[detected]
+        return GatewayError(code, message, status=422)
+    if compiler_code == "FULL_CONFIG_REQUIRED":
+        return GatewayError(
+            "UPSTREAM_FORMAT_NODE_ONLY",
+            "The upstream returned nodes without a complete Mihomo configuration.",
+            status=422,
+        )
+    return GatewayError(
+        "UPSTREAM_FORMAT_UNSUPPORTED",
+        "The upstream response is not a supported complete Mihomo configuration.",
+        status=422,
+    )
 def _default_state() -> dict[str, Any]:
     return {
         "version": STATE_VERSION,
@@ -543,7 +656,16 @@ class GatewayService:
                     source_yaml = self.source_path.read_text(encoding="utf-8")
                 else:
                     source_yaml = fetched.body
-                catalog = inspect_subscription(source_yaml)
+                try:
+                    catalog = inspect_subscription(source_yaml)
+                except CompileError as exc:
+                    if exc.code in {"SOURCE_NOT_MAPPING", "FULL_CONFIG_REQUIRED"}:
+                        raise _format_error(
+                            source_yaml,
+                            content_type=fetched.content_type,
+                            compiler_code=exc.code,
+                        ) from None
+                    raise
                 candidate = deepcopy(self._state)
                 candidate["catalog"] = deepcopy(catalog)
                 candidate["source_updated_at"] = self._timestamp()
