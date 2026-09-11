@@ -192,6 +192,47 @@ class GatewayServiceTests(unittest.TestCase):
             ]
         )
 
+    def test_renaming_a_source_only_changes_its_display_name(self):
+        service, _ = self.service(FetchResult(self.source))
+        imported = service.import_source(
+            "Original name", "https://primary.example.invalid/import?token=fixture"
+        )
+        landing = service.upsert_landing(
+            {
+                "name": "Fixture landing",
+                "type": "http",
+                "server": "landing.example.invalid",
+                "port": 8080,
+            }
+        )
+        service.update_bindings(
+            [
+                {
+                    "group": "AI",
+                    "enabled": True,
+                    "landing_id": landing["id"],
+                    "front_hop": {"mode": "direct"},
+                }
+            ]
+        )
+        before = service.public_state()
+        compiled_before = service.read_subscription(before["subscription"]["token"])
+
+        renamed = service.rename_source(imported["id"], "Renamed source")
+        after = service.public_state()
+
+        self.assertEqual("Renamed source", renamed["name"])
+        self.assertEqual(imported["id"], after["selected_source_id"])
+        self.assertEqual(imported["id"], after["active_source_id"])
+        self.assertEqual(
+            before["subscription"]["generation"],
+            after["subscription"]["generation"],
+        )
+        self.assertEqual(
+            compiled_before,
+            service.read_subscription(after["subscription"]["token"]),
+        )
+
     def test_saving_bindings_compiles_and_activates_the_selected_snapshot(self):
         service, _ = self.service(FetchResult(self.source))
         imported = service.import_source(
@@ -657,6 +698,149 @@ class GatewayServiceTests(unittest.TestCase):
         self.assertTrue(public_landing["has_password"])
         self.assertNotIn("fixture-password", repr(public))
         self.assertEqual("fixture-password", stored["landings"][0]["password"])
+
+    def test_landing_can_be_added_from_a_socks5_url_without_storing_the_raw_url(self):
+        service, _ = self.service()
+        landing_url = (
+            "socks5://fixture%20user:fixture%3Apassword@192.0.2.44:1081"
+        )
+
+        landing = service.upsert_landing(
+            {
+                "name": "URL landing",
+                "url": landing_url,
+                "udp": False,
+            }
+        )
+        stored_text = (self.data_dir / "state.json").read_text(encoding="utf-8")
+        stored = json.loads(stored_text)["landings"][0]
+
+        self.assertEqual("socks5", landing["type"])
+        self.assertEqual("192.0.2.44", landing["server"])
+        self.assertEqual(1081, landing["port"])
+        self.assertEqual("fixture user", landing["username"])
+        self.assertTrue(landing["has_password"])
+        self.assertFalse(landing["udp"])
+        self.assertEqual("fixture:password", stored["password"])
+        self.assertNotIn("socks5://", stored_text)
+        self.assertNotIn(landing_url, stored_text)
+
+    def test_landing_can_parse_host_port_username_password(self):
+        service, _ = self.service()
+        proxy_string = (
+            "proxy.example.invalid:8080:fixture-user:fixture-password"
+        )
+
+        landing = service.upsert_landing(
+            {
+                "name": "Colon landing",
+                "type": "http",
+                "url": proxy_string,
+            }
+        )
+        stored_text = (self.data_dir / "state.json").read_text(encoding="utf-8")
+
+        self.assertEqual("http", landing["type"])
+        self.assertEqual("proxy.example.invalid", landing["server"])
+        self.assertEqual(8080, landing["port"])
+        self.assertEqual("fixture-user", landing["username"])
+        self.assertTrue(landing["has_password"])
+        self.assertNotIn(proxy_string, stored_text)
+
+    def test_landing_can_parse_username_password_at_host_port(self):
+        service, _ = self.service()
+
+        landing = service.upsert_landing(
+            {
+                "name": "Authority landing",
+                "type": "socks5",
+                "url": (
+                    "fixture%20user:fixture%3Apassword@"
+                    "proxy.example.invalid:1080"
+                ),
+            }
+        )
+
+        self.assertEqual("socks5", landing["type"])
+        self.assertEqual("proxy.example.invalid", landing["server"])
+        self.assertEqual(1080, landing["port"])
+        self.assertEqual("fixture user", landing["username"])
+        self.assertTrue(landing["has_password"])
+        stored = json.loads(
+            (self.data_dir / "state.json").read_text(encoding="utf-8")
+        )["landings"][0]
+        self.assertEqual("fixture:password", stored["password"])
+
+    def test_landing_can_parse_username_password_host_port(self):
+        service, _ = self.service()
+
+        landing = service.upsert_landing(
+            {
+                "name": "Credentials-first landing",
+                "type": "http",
+                "url": (
+                    "fixture-user:fixture-password:"
+                    "proxy.example.invalid:8080"
+                ),
+            }
+        )
+
+        self.assertEqual("http", landing["type"])
+        self.assertEqual("proxy.example.invalid", landing["server"])
+        self.assertEqual(8080, landing["port"])
+        self.assertEqual("fixture-user", landing["username"])
+        self.assertTrue(landing["has_password"])
+
+    def test_landing_can_parse_host_port_without_authentication(self):
+        service, _ = self.service()
+
+        landing = service.upsert_landing(
+            {
+                "name": "IP allowlist landing",
+                "type": "socks5",
+                "url": "proxy.example.invalid:1080",
+            }
+        )
+
+        self.assertEqual("socks5", landing["type"])
+        self.assertEqual("proxy.example.invalid", landing["server"])
+        self.assertEqual(1080, landing["port"])
+        self.assertEqual("", landing["username"])
+        self.assertFalse(landing["has_password"])
+
+    def test_ambiguous_four_part_proxy_string_is_rejected(self):
+        service, _ = self.service()
+
+        with self.assertRaises(GatewayError) as raised:
+            service.upsert_landing(
+                {
+                    "name": "Ambiguous landing",
+                    "type": "http",
+                    "url": "proxy.example.invalid:8080:fixture-user:1234",
+                }
+            )
+
+        self.assertEqual("LANDING_URL_INVALID", raised.exception.code)
+        self.assertEqual([], service.public_state()["landings"])
+
+    def test_landing_url_rejects_unsupported_or_incomplete_urls(self):
+        cases = (
+            "ftp://fixture-user:fixture-password@192.0.2.44:1081",
+            "socks5://fixture-user:fixture-password@192.0.2.44",
+            "socks5://fixture-user:fixture-password@192.0.2.44:1081/path",
+            "http://fixture-user:fixture-password@192.0.2.44:8080?mode=proxy",
+        )
+
+        for index, landing_url in enumerate(cases):
+            with self.subTest(landing_url=landing_url):
+                service = GatewayService(Path(self.temp.name) / f"invalid-url-{index}")
+                with self.assertRaises(GatewayError) as raised:
+                    service.upsert_landing(
+                        {"name": "Invalid URL landing", "url": landing_url}
+                    )
+                self.assertEqual("LANDING_URL_INVALID", raised.exception.code)
+                self.assertNotIn("fixture-password", str(raised.exception))
+                self.assertEqual([], service.public_state()["landings"])
 
     def test_editing_an_active_landing_recompiles_the_subscription(self):
         service, _ = self.service(FetchResult(self.source))

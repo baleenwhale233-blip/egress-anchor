@@ -334,9 +334,20 @@ compiles its saved snapshot and bindings first, then replaces
 activation leaves the prior active profile and compiled output untouched.
 
 The management UI exposes an “Add subscription” modal and a source list. Adding
-performs “save and read” as one operation. There is no separate save-address or
-refresh action. Deleting the active profile is rejected until another profile
-is activated.
+performs “save and read” as one operation. Saved profiles may be renamed locally
+without re-fetching or recompiling. There is no separate save-address or refresh
+action. Deleting the active profile is rejected until another profile is
+activated.
+
+Landing input accepts either the existing explicit fields, one request-local
+`socks5://` / `http://` proxy URL, or a common scheme-less proxy string:
+`host:port`, `host:port:username:password`, `username:password@host:port`, or
+`username:password:host:port`. A URL scheme is authoritative for proxy type;
+scheme-less strings use the explicit form type. UDP and the local display name
+remain separate fields. Credentials in URLs are percent-decoded. Ambiguous
+four-part strings, unbracketed IPv6, paths, queries, fragments, unsupported
+schemes, and missing ports are rejected. The raw input is never stored or
+returned in public state.
 
 Security defaults:
 

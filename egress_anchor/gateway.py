@@ -107,6 +107,138 @@ def _display_url(url: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, host, path, suffix, ""))
 
 
+def _validated_source_name(raw_name: Any) -> str:
+    if (
+        not isinstance(raw_name, str)
+        or not raw_name.strip()
+        or len(raw_name.strip()) > 80
+    ):
+        raise GatewayError(
+            "SOURCE_NAME_INVALID",
+            "Enter a source name between 1 and 80 characters.",
+        )
+    return raw_name.strip()
+
+
+def _landing_fields_from_input(
+    raw_value: Any,
+    *,
+    default_type: Any = None,
+) -> dict[str, Any]:
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        raise GatewayError(
+            "LANDING_URL_INVALID",
+            "Enter a valid SOCKS5 or HTTP proxy URL.",
+        )
+    value = raw_value.strip()
+    kinds = {"socks5": "socks5", "http": "http"}
+    if "://" not in value:
+        if default_type not in kinds:
+            raise GatewayError(
+                "LANDING_URL_INVALID",
+                "Choose HTTP or SOCKS5 for a proxy string without a scheme.",
+            )
+        if "@" in value:
+            parsed = None
+            try:
+                parsed = urllib.parse.urlsplit(f"//{value}")
+                hostname = parsed.hostname
+                port = parsed.port
+            except ValueError:
+                hostname = None
+                port = None
+            if (
+                not hostname
+                or port is None
+                or parsed is None
+                or parsed.path
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise GatewayError(
+                    "LANDING_URL_INVALID",
+                    "Enter a supported proxy string or URL.",
+                )
+            return {
+                "type": kinds[default_type],
+                "server": hostname,
+                "port": port,
+                "username": urllib.parse.unquote(parsed.username or ""),
+                "password": urllib.parse.unquote(parsed.password or ""),
+            }
+        parts = value.split(":")
+        if len(parts) == 2:
+            hostname, raw_port = parts
+            username = ""
+            password = ""
+        elif len(parts) == 4:
+            second_is_port = parts[1].isdigit() and 1 <= int(parts[1]) <= 65535
+            fourth_is_port = parts[3].isdigit() and 1 <= int(parts[3]) <= 65535
+            if second_is_port and not fourth_is_port:
+                hostname, raw_port, username, password = parts
+            elif fourth_is_port and not second_is_port:
+                username, password, hostname, raw_port = parts
+            else:
+                raise GatewayError(
+                    "LANDING_URL_INVALID",
+                    "The four-part proxy string is ambiguous.",
+                )
+        else:
+            raise GatewayError(
+                "LANDING_URL_INVALID",
+                "Enter a supported proxy string or URL.",
+            )
+        try:
+            port = int(raw_port)
+        except ValueError:
+            port = 0
+        if (
+            not hostname
+            or any(character.isspace() for character in hostname)
+            or not 1 <= port <= 65535
+        ):
+            raise GatewayError(
+                "LANDING_URL_INVALID",
+                "Enter a supported proxy string or URL.",
+            )
+        return {
+            "type": kinds[default_type],
+            "server": hostname,
+            "port": port,
+            "username": username,
+            "password": password,
+        }
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        scheme = parsed.scheme.lower()
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        raise GatewayError(
+            "LANDING_URL_INVALID",
+            "Enter a valid SOCKS5 or HTTP proxy URL.",
+        ) from None
+    if (
+        scheme not in kinds
+        or not hostname
+        or port is None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise GatewayError(
+            "LANDING_URL_INVALID",
+            "Enter a valid SOCKS5 or HTTP proxy URL.",
+        )
+    return {
+        "type": kinds[scheme],
+        "server": hostname,
+        "port": port,
+        "username": urllib.parse.unquote(parsed.username or ""),
+        "password": urllib.parse.unquote(parsed.password or ""),
+    }
+
+
 def detect_subscription_format(
     body: str,
     *,
@@ -526,12 +658,7 @@ class GatewayService:
 
     def import_source(self, name: Any, url: Any) -> Mapping[str, Any]:
         with self._lock:
-            if not isinstance(name, str) or not name.strip() or len(name.strip()) > 80:
-                raise GatewayError(
-                    "SOURCE_NAME_INVALID",
-                    "Enter a source name between 1 and 80 characters.",
-                )
-            name = name.strip()
+            name = _validated_source_name(name)
             url = _validated_http_url(url)
             sources = self._state.get("sources", [])
             if len(sources) >= MAX_SOURCES:
@@ -642,6 +769,45 @@ class GatewayService:
             candidate["last_error"] = None
             self._state = candidate
             self._save_state()
+            return next(
+                item
+                for item in self.public_state()["sources"]
+                if item["id"] == source_id
+            )
+
+    def rename_source(self, source_id: Any, name: Any) -> Mapping[str, Any]:
+        with self._lock:
+            name = _validated_source_name(name)
+            source = next(
+                (
+                    item
+                    for item in self._state.get("sources", [])
+                    if item.get("id") == source_id
+                ),
+                None,
+            )
+            if source is None:
+                raise GatewayError(
+                    "SOURCE_NOT_FOUND",
+                    "The saved source was not found.",
+                    status=404,
+                )
+            if any(
+                item.get("id") != source_id and item.get("name") == name
+                for item in self._state.get("sources", [])
+            ):
+                raise GatewayError(
+                    "SOURCE_NAME_CONFLICT",
+                    "Choose a unique source name.",
+                )
+            candidate = deepcopy(self._state)
+            renamed = next(
+                item for item in candidate["sources"] if item["id"] == source_id
+            )
+            renamed["name"] = name
+            candidate["last_error"] = None
+            self._save_state_value(candidate)
+            self._state = candidate
             return next(
                 item
                 for item in self.public_state()["sources"]
@@ -781,9 +947,18 @@ class GatewayService:
             if not isinstance(payload, Mapping):
                 raise GatewayError("LANDING_INVALID", "The landing proxy is invalid.")
             name = payload.get("name")
-            kind = payload.get("type")
-            server = payload.get("server")
-            port = payload.get("port")
+            landing_url = payload.get("url")
+            url_fields = (
+                _landing_fields_from_input(
+                    landing_url,
+                    default_type=payload.get("type"),
+                )
+                if landing_url not in (None, "")
+                else None
+            )
+            kind = url_fields["type"] if url_fields else payload.get("type")
+            server = url_fields["server"] if url_fields else payload.get("server")
+            port = url_fields["port"] if url_fields else payload.get("port")
             if not isinstance(name, str) or not name.strip():
                 raise GatewayError("LANDING_INVALID", "Enter a landing name.")
             if kind not in {"http", "socks5"}:
@@ -802,14 +977,18 @@ class GatewayService:
             if original is None:
                 landing_id = secrets.token_hex(6)
                 original = {"id": landing_id}
-            password = payload.get("password")
-            if password in (None, "") and original.get("password"):
-                password = original["password"]
-            if password is None:
-                password = ""
+            if url_fields is not None:
+                password = url_fields["password"]
+                username = url_fields["username"]
+            else:
+                password = payload.get("password")
+                if password in (None, "") and original.get("password"):
+                    password = original["password"]
+                if password is None:
+                    password = ""
+                username = payload.get("username", "")
             if not isinstance(password, str):
                 raise GatewayError("LANDING_INVALID", "The landing password is invalid.")
-            username = payload.get("username", "")
             if not isinstance(username, str):
                 raise GatewayError("LANDING_INVALID", "The landing username is invalid.")
             candidate = deepcopy(self._state)

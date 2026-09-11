@@ -236,6 +236,14 @@ def _handler_class(service: GatewayService, static_dir: Path):
                         )
                         self._send_json(200, {"ok": True, "source": source})
                         return
+                if path.startswith(source_prefix):
+                    source_id = path.removeprefix(source_prefix)
+                    if source_id and "/" not in source_id:
+                        source = service.rename_source(
+                            urllib.parse.unquote(source_id), payload.get("name")
+                        )
+                        self._send_json(200, {"ok": True, "source": source})
+                        return
                 if path == "/api/bindings":
                     result = service.update_bindings(payload.get("bindings"))
                     self._send_json(200, result)

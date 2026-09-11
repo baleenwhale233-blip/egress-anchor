@@ -19,6 +19,7 @@
       --danger: #f0b0a6;
     }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     html, body {
       margin: 0;
       background: var(--bg);
@@ -46,6 +47,7 @@
     button.primary:hover { background: #463e30; }
     button.danger { color: var(--danger); }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
+    input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; color: var(--muted); }
     code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
     .sub { color: var(--muted); margin: 0 0 16px; }
     .pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
@@ -63,6 +65,7 @@
     .ops { display: flex; gap: 6px; flex-wrap: wrap; }
     label.f { display: block; margin: 0 0 8px; }
     label.f > span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+    .field-hint { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
     .landing, .source { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; background: #16181c; }
     .source.selected { border-color: #5a4e3a; background: #1d1b17; }
     .landing .n, .source .n { font-weight: 600; }
@@ -124,6 +127,7 @@
       <section class="card">
         <div class="head"><div class="k">订阅来源</div><button class="primary" id="btn-add-source">添加订阅</button></div>
         <div id="source-list"></div>
+        <p class="sub" id="source-module-hint" aria-live="polite" style="margin:8px 0 0">添加订阅后，在右侧选择要管理的策略组。</p>
         <p class="sub" style="margin:8px 0 0">完整地址仅用于本次导入。读取成功后，本机只保存订阅快照和脱敏来源。</p>
       </section>
 
@@ -140,11 +144,11 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>启用</th><th>策略组</th><th>落地</th><th>前置策略</th><th>固定前置</th></tr></thead>
+          <thead><tr><th>启用</th><th>策略组</th><th>落地</th><th>连接方式</th><th>固定节点/组</th></tr></thead>
           <tbody id="binding-rows"></tbody>
         </table>
       </div>
-      <p class="sub" style="margin:10px 0 0">source 保留原组选择；automatic 自动健康选择；fixed 固定一个前置；direct 直接连接落地。</p>
+      <p class="sub" style="margin:10px 0 0">沿用订阅策略：保留原组类型和候选；自动测速选择：从原候选中自动选择；固定节点/组：只使用指定前置；直连落地：不经过订阅节点，最终出口仍是落地。</p>
     </section>
   </div>
 
@@ -182,10 +186,10 @@
     <div class="sheet">
       <div class="head"><div class="k" id="source-modal-title">添加订阅</div><button id="btn-close-source-modal">关闭</button></div>
       <label class="f"><span>来源名称</span><input id="source-name" maxlength="80" autocomplete="off" placeholder="主力订阅" /></label>
-      <label class="f"><span>完整 Mihomo 订阅 URL</span><input id="source-url" type="url" autocomplete="off" placeholder="https://provider.example/sub?token=…" /></label>
+      <label class="f" id="source-url-field"><span>完整 Mihomo 订阅 URL</span><input id="source-url" type="url" autocomplete="off" placeholder="https://provider.example/sub?token=…" /></label>
       <p class="sub" id="source-modal-hint">完整地址仅用于本次导入，读取成功后不会保存。</p>
       <div class="ops" style="justify-content:flex-end">
-        <button class="primary" id="btn-import-source">保存并读取</button>
+        <button class="primary" id="btn-save-source">保存并读取</button>
       </div>
     </div>
   </div>
@@ -195,15 +199,19 @@
       <div class="head"><div class="k" id="modal-title">添加落地代理</div><button id="btn-close-modal">关闭</button></div>
       <input id="landing-id" type="hidden" />
       <label class="f"><span>名称</span><input id="landing-name" placeholder="US Residential 1" /></label>
-      <div class="row3">
-        <label class="f"><span>方式</span><select id="landing-type"><option value="socks5">SOCKS5</option><option value="http">HTTP</option></select></label>
-        <label class="f"><span>端口</span><input id="landing-port" type="number" min="1" max="65535" placeholder="1080" /></label>
-        <label class="f"><span>UDP</span><select id="landing-udp"><option value="1">开启</option><option value="0">关闭</option></select></label>
-      </div>
-      <label class="f"><span>服务器</span><input id="landing-server" autocomplete="off" placeholder="landing.example.com" /></label>
-      <div class="row2" style="grid-template-columns:1fr 1fr">
-        <label class="f"><span>用户名</span><input id="landing-user" autocomplete="off" /></label>
-        <label class="f"><span>密码</span><input id="landing-pass" type="password" autocomplete="new-password" placeholder="编辑时留空可保留" /></label>
+      <label class="f"><span>代理地址（可选）</span><input id="landing-url" autocomplete="off" spellcheck="false" placeholder="socks5://user:password@server:1080" /></label>
+      <p class="sub" id="landing-url-hint">支持 <code>socks5://用户名:密码@服务器:端口</code>、<code>http://</code>、<code>服务器:端口</code>、<code>服务器:端口:用户名:密码</code>、<code>用户名:密码@服务器:端口</code> 和 <code>用户名:密码:服务器:端口</code>。无协议时使用“方式”。</p>
+      <div id="landing-manual-fields">
+        <div class="row3">
+          <label class="f"><span>方式</span><select id="landing-type"><option value="socks5">SOCKS5</option><option value="http">HTTP</option></select></label>
+          <label class="f"><span>端口</span><input id="landing-port" data-manual-landing type="number" min="1" max="65535" placeholder="1080" /></label>
+          <label class="f"><span>UDP</span><select id="landing-udp"><option value="1">开启</option><option value="0">关闭</option></select></label>
+        </div>
+        <label class="f"><span>服务器</span><input id="landing-server" data-manual-landing autocomplete="off" placeholder="landing.example.com" /></label>
+        <div class="row2" style="grid-template-columns:1fr 1fr">
+          <label class="f"><span>用户名</span><input id="landing-user" data-manual-landing autocomplete="off" /></label>
+          <label class="f"><span>密码</span><input id="landing-pass" data-manual-landing type="password" autocomplete="new-password" aria-describedby="landing-password-hint" placeholder="可选" /><small class="field-hint" id="landing-password-hint">未设置密码。</small></label>
+        </div>
       </div>
       <div class="ops" style="justify-content:flex-end">
         <button class="danger" id="btn-delete-landing" style="display:none">删除</button>
@@ -216,6 +224,7 @@
 const $ = (id) => document.getElementById(id);
 let state = null;
 let busy = false;
+let editingSourceId = null;
 
 const errorMessages = {
   UPSTREAM_URL_INVALID: "请输入有效的 HTTP 或 HTTPS 订阅地址。",
@@ -244,6 +253,7 @@ const errorMessages = {
   POLICY_INVALID: "策略组配置无效。",
   BINDINGS_INVALID: "策略组绑定无效，请检查落地和前置策略。",
   LANDING_INVALID: "落地代理配置无效。",
+  LANDING_URL_INVALID: "代理地址格式不对。请使用支持的 URL 或代理字符串；有歧义时改用标准 URL。",
   NO_COMPILED_SUBSCRIPTION: "尚未生成可用的本地订阅。",
   INTERNAL_ERROR: "本地网关处理失败。",
 };
@@ -328,9 +338,18 @@ function renderBanner() {
 }
 
 function renderSources() {
+  const selectedSource = state.sources.find((source) => source.selected);
   if (!state.sources.length) {
     $("source-list").innerHTML = `<div class="empty">还没有订阅来源。添加后会立即读取策略组，并把快照保存在本机。</div>`;
+    $("source-module-hint").textContent = "添加订阅后，在右侧选择要管理的策略组。";
     return;
+  }
+  if (selectedSource?.active) {
+    $("source-module-hint").textContent = `「${selectedSource.name}」正在使用。选择其他来源可查看或修改配置。`;
+  } else if (selectedSource?.managed_group_count > 0) {
+    $("source-module-hint").textContent = `「${selectedSource.name}」已有配置，可直接启用或继续修改。`;
+  } else {
+    $("source-module-hint").textContent = `正在配置「${selectedSource?.name || "订阅来源"}」。在右侧启用策略组，然后保存配置。`;
   }
   $("source-list").innerHTML = state.sources.map((source) => {
     const badges = [
@@ -340,15 +359,13 @@ function renderSources() {
     const actions = [
       !source.selected ? `<button data-select-source="${esc(source.id)}">选择</button>` : "",
       !source.active && source.managed_group_count > 0 ? `<button class="primary" data-activate-source="${esc(source.id)}">启用</button>` : "",
+      `<button data-rename-source="${esc(source.id)}">重命名</button>`,
       !source.active ? `<button class="danger" data-delete-source="${esc(source.id)}">删除</button>` : "",
     ].join("");
-    const setupHint = source.selected && !source.active && source.managed_group_count === 0
-      ? `<div class="m">在右侧启用策略组，然后保存配置。</div>` : "";
     return `<div class="source ${source.selected ? "selected" : ""}">
       <div class="n">${esc(source.name)}${badges}</div>
       <div class="m">${esc(source.display_url)}</div>
       <div class="m">${source.group_count} 个策略组 · ${source.proxy_count} 个节点 · 导入于 ${esc(formatTime(source.imported_at))}</div>
-      ${setupHint}
       <div class="ops">${actions}</div>
     </div>`;
   }).join("");
@@ -374,10 +391,11 @@ function landingOptions(selected) {
   )].join("");
 }
 
-function frontOptions(groupName, selected) {
+function frontOptions(groupName, selected, fixedMode) {
   const proxyOptions = state.catalog.proxies.map((proxy) => proxy.name);
   const groupOptions = state.catalog.groups.map((group) => group.name).filter((name) => name !== groupName);
-  return [`<option value="">请选择</option>`, ...[...proxyOptions, ...groupOptions].map((name) =>
+  const placeholder = fixedMode ? "请选择节点或策略组" : "仅固定模式可选";
+  return [`<option value="">${placeholder}</option>`, ...[...proxyOptions, ...groupOptions].map((name) =>
     `<option value="${encodeURIComponent(name)}" ${name === selected ? "selected" : ""}>${esc(name)}</option>`
   )].join("");
 }
@@ -395,8 +413,8 @@ function renderBindings() {
       <td><label class="sw"><span class="sr-only">管理 ${esc(group.name)}</span><input data-enable="${key}" type="checkbox" ${binding.enabled ? "checked" : ""}><i></i></label></td>
       <td>${esc(group.name)}${status}<div class="sub" style="margin:0">${esc(group.type)} · ${group.proxies.length} 节点 · ${group.use.length} provider</div></td>
       <td><select aria-label="${esc(group.name)} 落地" data-landing="${key}">${landingOptions(binding.landing_id)}</select></td>
-      <td><select aria-label="${esc(group.name)} 前置策略" data-mode="${key}"><option value="source" ${mode === "source" ? "selected" : ""}>source</option><option value="automatic" ${mode === "automatic" ? "selected" : ""}>automatic</option><option value="fixed" ${mode === "fixed" ? "selected" : ""}>fixed</option><option value="direct" ${mode === "direct" ? "selected" : ""}>direct</option></select></td>
-      <td><select aria-label="${esc(group.name)} 固定前置" data-fixed="${key}" ${mode === "fixed" ? "" : "disabled"}>${frontOptions(group.name, fixed)}</select></td>
+      <td><select aria-label="${esc(group.name)} 连接方式" data-mode="${key}"><option value="source" ${mode === "source" ? "selected" : ""}>沿用订阅策略</option><option value="automatic" ${mode === "automatic" ? "selected" : ""}>自动测速选择</option><option value="fixed" ${mode === "fixed" ? "selected" : ""}>固定节点/组</option><option value="direct" ${mode === "direct" ? "selected" : ""}>直连落地</option></select></td>
+      <td><select aria-label="${esc(group.name)} 固定节点或策略组" data-fixed="${key}" ${mode === "fixed" ? "" : "disabled"}>${frontOptions(group.name, fixed, mode === "fixed")}</select></td>
     </tr>`;
   }).join("");
   $("binding-rows").innerHTML = rows || `<tr><td colspan="5" class="empty">先添加或选择订阅来源，策略组会显示在这里。</td></tr>`;
@@ -446,19 +464,41 @@ async function reloadState() {
   renderAll();
 }
 
-function openSourceModal() {
-  $("source-name").value = "";
+function openSourceModal(source = null) {
+  editingSourceId = source?.id || null;
+  $("source-modal-title").textContent = source ? "重命名订阅" : "添加订阅";
+  $("source-name").value = source?.name || "";
   $("source-url").value = "";
+  $("source-url-field").hidden = !!source;
+  $("source-modal-hint").textContent = source
+    ? "只修改本机显示名称，不会重新读取订阅。"
+    : "完整地址仅用于本次导入，读取成功后不会保存。";
+  $("btn-save-source").textContent = source ? "保存名称" : "保存并读取";
   $("source-modal").classList.add("on");
   $("source-name").focus();
 }
 
-function closeSourceModal() { $("source-modal").classList.remove("on"); }
+function closeSourceModal() {
+  $("source-modal").classList.remove("on");
+  editingSourceId = null;
+}
 
-async function importSource() {
+async function saveSource() {
   const name = $("source-name").value.trim();
-  const url = $("source-url").value.trim();
   if (!name) { $("dock-msg").textContent = "请输入来源名称。"; $("source-name").focus(); return; }
+  const sourceId = editingSourceId;
+  if (sourceId) {
+    setBusy(true, "正在保存来源名称…");
+    try {
+      await api(`/api/sources/${encodeURIComponent(sourceId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+      closeSourceModal();
+      await reloadState();
+      $("dock-msg").textContent = `来源名称已改为「${name}」。`;
+    } catch (error) { $("dock-msg").textContent = error.message; }
+    finally { setBusy(false); }
+    return;
+  }
+  const url = $("source-url").value.trim();
   if (!url) { $("dock-msg").textContent = "请输入完整订阅地址。"; $("source-url").focus(); return; }
   setBusy(true, "正在读取并验证订阅…");
   try {
@@ -506,34 +546,76 @@ async function deleteSource(sourceId) {
   finally { setBusy(false); }
 }
 
+function updateLandingUrlMode() {
+  const proxyValue = $("landing-url").value.trim();
+  const useProxyValue = !!proxyValue;
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(proxyValue);
+  for (const control of document.querySelectorAll("[data-manual-landing]")) control.disabled = useProxyValue;
+  $("landing-type").disabled = useProxyValue && hasScheme;
+  const hasSavedPassword = $("landing-pass").dataset.hasSavedPassword === "1";
+  if (useProxyValue) {
+    $("landing-pass").placeholder = "由代理地址提供";
+    $("landing-password-hint").textContent = "保存后使用代理地址中的密码。";
+  } else if (hasSavedPassword) {
+    $("landing-pass").placeholder = "••••••••";
+    $("landing-password-hint").textContent = "密码已保存；留空保留，输入可替换。";
+  } else {
+    $("landing-pass").placeholder = "可选";
+    $("landing-password-hint").textContent = "未设置密码。";
+  }
+  if (useProxyValue && hasScheme) {
+    $("landing-url-hint").textContent = "将使用代理 URL；下面的手动字段已暂时停用。";
+  } else if (useProxyValue) {
+    $("landing-url-hint").textContent = "将按“方式”解析代理字符串；其他手动字段已暂时停用。";
+  } else {
+    $("landing-url-hint").innerHTML = "支持 <code>socks5://用户名:密码@服务器:端口</code>、<code>http://</code>、<code>服务器:端口</code>、<code>服务器:端口:用户名:密码</code>、<code>用户名:密码@服务器:端口</code> 和 <code>用户名:密码:服务器:端口</code>。无协议时使用“方式”。";
+  }
+}
+
 function openLandingModal(landing = null) {
   $("modal-title").textContent = landing ? "编辑落地代理" : "添加落地代理";
   $("landing-id").value = landing?.id || "";
   $("landing-name").value = landing?.name || "";
+  $("landing-url").value = "";
   $("landing-type").value = landing?.type || "socks5";
   $("landing-server").value = landing?.server || "";
   $("landing-port").value = landing?.port || "";
   $("landing-user").value = landing?.username || "";
   $("landing-pass").value = "";
+  $("landing-pass").dataset.hasSavedPassword = landing?.has_password ? "1" : "0";
   $("landing-udp").value = landing?.udp === false ? "0" : "1";
+  updateLandingUrlMode();
   $("btn-delete-landing").style.display = landing ? "inline-block" : "none";
   $("landing-modal").classList.add("on");
   $("landing-name").focus();
 }
 
-function closeLandingModal() { $("landing-modal").classList.remove("on"); }
+function closeLandingModal() {
+  $("landing-modal").classList.remove("on");
+  $("landing-url").value = "";
+  $("landing-pass").value = "";
+  updateLandingUrlMode();
+}
 
 async function saveLanding() {
+  const landingUrl = $("landing-url").value.trim();
   const payload = {
     id: $("landing-id").value || undefined,
     name: $("landing-name").value.trim(),
-    type: $("landing-type").value,
-    server: $("landing-server").value.trim(),
-    port: Number($("landing-port").value),
-    username: $("landing-user").value,
-    password: $("landing-pass").value,
     udp: $("landing-udp").value === "1",
   };
+  if (landingUrl) {
+    payload.url = landingUrl;
+    payload.type = $("landing-type").value;
+  } else {
+    Object.assign(payload, {
+      type: $("landing-type").value,
+      server: $("landing-server").value.trim(),
+      port: Number($("landing-port").value),
+      username: $("landing-user").value,
+      password: $("landing-pass").value,
+    });
+  }
   setBusy(true, "正在保存落地代理…");
   try {
     await api("/api/landings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -572,23 +654,26 @@ async function saveBindings() {
   finally { setBusy(false); }
 }
 
-$("btn-add-source").onclick = openSourceModal;
+$("btn-add-source").onclick = () => openSourceModal();
 $("btn-close-source-modal").onclick = closeSourceModal;
-$("btn-import-source").onclick = importSource;
+$("btn-save-source").onclick = saveSource;
 $("btn-save-bindings").onclick = saveBindings;
 $("btn-add-landing").onclick = () => openLandingModal();
 $("btn-close-modal").onclick = closeLandingModal;
 $("btn-save-landing").onclick = saveLanding;
 $("btn-delete-landing").onclick = deleteLanding;
+$("landing-url").oninput = updateLandingUrlMode;
 $("source-modal").onclick = (event) => { if (event.target === $("source-modal")) closeSourceModal(); };
 $("landing-modal").onclick = (event) => { if (event.target === $("landing-modal")) closeLandingModal(); };
 document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSourceModal(); closeLandingModal(); } });
 $("source-list").onclick = (event) => {
   const selectButton = event.target.closest("[data-select-source]");
   const activateButton = event.target.closest("[data-activate-source]");
+  const renameButton = event.target.closest("[data-rename-source]");
   const deleteButton = event.target.closest("[data-delete-source]");
   if (selectButton) selectSource(selectButton.dataset.selectSource);
   else if (activateButton) activateSource(activateButton.dataset.activateSource);
+  else if (renameButton) openSourceModal(state.sources.find((item) => item.id === renameButton.dataset.renameSource));
   else if (deleteButton) deleteSource(deleteButton.dataset.deleteSource);
 };
 $("landing-list").onclick = (event) => { const button = event.target.closest("[data-edit-landing]"); if (button) openLandingModal(state.landings.find((item) => item.id === button.dataset.editLanding)); };

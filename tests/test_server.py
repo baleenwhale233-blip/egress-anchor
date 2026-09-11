@@ -181,6 +181,27 @@ class GatewayHttpTests(unittest.TestCase):
             first["source"]["id"], state["state"]["selected_source_id"]
         )
 
+    def test_http_can_rename_a_saved_source(self):
+        _, _, imported = self.json_request(
+            "/api/sources",
+            method="POST",
+            payload={
+                "name": "Original name",
+                "url": "https://primary.example.invalid/import?token=fixture",
+            },
+        )
+
+        status, _, renamed = self.json_request(
+            f"/api/sources/{imported['source']['id']}",
+            method="PUT",
+            payload={"name": "Renamed source"},
+        )
+
+        self.assertEqual(200, status)
+        self.assertEqual("Renamed source", renamed["source"]["name"])
+        _, _, state = self.json_request("/api/state")
+        self.assertEqual("Renamed source", state["state"]["sources"][0]["name"])
+
     def test_http_activate_source_requires_saved_bindings(self):
         _, _, imported = self.json_request(
             "/api/sources",
@@ -270,12 +291,18 @@ class GatewayHttpTests(unittest.TestCase):
             self.assertIn(f".{component_class}", html)
         for element_id in (
             "source-list",
+            "source-module-hint",
             "btn-add-source",
             "source-modal",
             "source-name",
             "source-url",
-            "btn-import-source",
+            "source-url-field",
+            "btn-save-source",
             "landing-list",
+            "landing-url",
+            "landing-url-hint",
+            "landing-manual-fields",
+            "landing-password-hint",
             "binding-rows",
             "subscription-url",
             "btn-save-bindings",
@@ -290,6 +317,27 @@ class GatewayHttpTests(unittest.TestCase):
             self.assertNotIn(f'id="{removed_id}"', html)
         self.assertIn("保存并读取", html)
         self.assertIn("完整地址仅用于本次导入", html)
+        self.assertIn("data-rename-source", html)
+        self.assertNotIn("const setupHint", html)
+        self.assertIn("socks5://用户名:密码@服务器:端口", html)
+        self.assertIn("http://", html)
+        self.assertIn("服务器:端口:用户名:密码", html)
+        self.assertIn("用户名:密码@服务器:端口", html)
+        self.assertIn("用户名:密码:服务器:端口", html)
+        self.assertIn("无协议时使用“方式”", html)
+        self.assertIn("••••••••", html)
+        self.assertIn("密码已保存；留空保留，输入可替换", html)
+        for label in (
+            "沿用订阅策略",
+            "自动测速选择",
+            "固定节点/组",
+            "直连落地",
+            "仅固定模式可选",
+            "请选择节点或策略组",
+        ):
+            self.assertIn(label, html)
+        self.assertIn("select:disabled", html)
+        self.assertNotIn(">source</option>", html)
         self.assertNotIn("/api/repair-dns", html)
         self.assertNotIn("应用到 FlClash", html)
         self.assertIn('UPSTREAM_FETCH_FAILED: "无法获取上游订阅。"', html)
