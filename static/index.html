@@ -26,6 +26,9 @@
       color: var(--text);
       font: 13.5px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif;
     }
+    html { scrollbar-gutter: stable; }
+    html.modal-open { overflow: hidden; overscroll-behavior: none; }
+    body.modal-open { position: fixed; top: var(--modal-scroll-offset); left: 0; right: 0; width: 100%; overflow: hidden; }
     body { padding: 20px 22px 88px; max-width: 1280px; margin: 0 auto; }
     h1 { font-size: 18px; font-weight: 650; margin: 0 0 2px; letter-spacing: -0.02em; }
     button, select, input {
@@ -61,6 +64,7 @@
     .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; }
     .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
     .row2 { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+    .credentials-row { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
     .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
     .ops { display: flex; gap: 6px; flex-wrap: wrap; }
     label.f { display: block; margin: 0 0 8px; }
@@ -116,9 +120,12 @@
     .dock { position: fixed; left: 0; right: 0; bottom: 0; background: #14161aee; border-top: 1px solid var(--line); backdrop-filter: blur(10px); z-index: 10; }
     .dock-in { max-width: 1280px; margin: 0 auto; padding: 10px 22px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .dock .grow { flex: 1; color: var(--muted); font-size: 12px; min-width: 220px; }
-    .modal { position: fixed; inset: 0; background: #0009; display: none; align-items: center; justify-content: center; padding: 20px; z-index: 20; }
+    .modal { position: fixed; inset: 0; background: #0009; display: none; align-items: center; justify-content: center; padding: 20px; z-index: 20; overflow: hidden; overscroll-behavior: none; }
     .modal.on { display: flex; }
-    .sheet { width: min(520px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: 0 24px 80px #0008; }
+    .sheet { width: min(520px, 100%); max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); overflow-y: auto; overscroll-behavior: contain; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: 0 24px 80px #0008; }
+    .modal-title { margin: 0; color: var(--text); font-size: 18px; line-height: 1.3; font-weight: 650; letter-spacing: -0.02em; }
+    .modal-close { display: inline-flex; align-items: center; justify-content: center; width: 32px; min-height: 32px; flex: none; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 24px; line-height: 1; }
+    .modal-close:hover { background: var(--panel2); color: var(--text); }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
     @media (max-width: 980px) {
       body { padding: 16px; }
@@ -212,7 +219,7 @@
 
   <div class="modal" id="source-modal" role="dialog" aria-modal="true" aria-labelledby="source-modal-title" aria-describedby="source-modal-hint">
     <div class="sheet">
-      <div class="head"><div class="k" id="source-modal-title">添加订阅</div><button id="btn-close-source-modal">关闭</button></div>
+      <div class="head"><h2 class="modal-title" id="source-modal-title">添加订阅</h2><button class="modal-close" id="btn-close-source-modal" aria-label="关闭"><span aria-hidden="true">×</span></button></div>
       <label class="f"><span>来源名称</span><input id="source-name" maxlength="80" autocomplete="off" placeholder="主力订阅" /></label>
       <label class="f" id="source-url-field"><span>完整 Mihomo 订阅 URL</span><input id="source-url" type="url" autocomplete="off" placeholder="https://provider.example/sub?token=…" /></label>
       <p class="sub" id="source-modal-hint">完整地址仅用于本次导入，读取成功后不会保存。</p>
@@ -224,7 +231,7 @@
 
   <div class="modal" id="landing-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="sheet">
-      <div class="head"><div class="k" id="modal-title">添加落地代理</div><button id="btn-close-modal">关闭</button></div>
+      <div class="head"><h2 class="modal-title" id="modal-title">添加落地代理</h2><button class="modal-close" id="btn-close-modal" aria-label="关闭"><span aria-hidden="true">×</span></button></div>
       <input id="landing-id" type="hidden" />
       <label class="f"><span>名称</span><input id="landing-name" placeholder="US Residential 1" /></label>
       <label class="f"><span>代理地址（可选）</span><input id="landing-url" autocomplete="off" spellcheck="false" placeholder="socks5://user:password@server:1080" /></label>
@@ -236,7 +243,7 @@
           <label class="f"><span>UDP</span><select id="landing-udp"><option value="1">开启</option><option value="0">关闭</option></select></label>
         </div>
         <label class="f"><span>服务器</span><input id="landing-server" data-manual-landing autocomplete="off" placeholder="landing.example.com" /></label>
-        <div class="row2" style="grid-template-columns:1fr 1fr">
+        <div class="row2 credentials-row">
           <label class="f"><span>用户名</span><input id="landing-user" data-manual-landing autocomplete="off" /></label>
           <label class="f"><span>密码</span><input id="landing-pass" data-manual-landing type="password" autocomplete="new-password" aria-describedby="landing-password-hint" placeholder="可选" /><small class="field-hint" id="landing-password-hint">未设置密码。</small></label>
         </div>
@@ -255,6 +262,7 @@ const probeReports = new Map();
 let savedBindingSignatures = new Map();
 let busy = false;
 let editingSourceId = null;
+let modalSession = null;
 
 const errorMessages = {
   UPSTREAM_URL_INVALID: "请输入有效的 HTTP 或 HTTPS 订阅地址。",
@@ -613,6 +621,29 @@ async function reloadState() {
   renderAll();
 }
 
+function openModal(id) {
+  if (!modalSession) {
+    modalSession = { scrollY: window.scrollY, trigger: document.activeElement };
+    document.body.style.setProperty("--modal-scroll-offset", `${-modalSession.scrollY}px`);
+    document.documentElement.classList.add("modal-open");
+    document.body.classList.add("modal-open");
+  }
+  $(id).classList.add("on");
+  $(id).querySelector(".sheet").scrollTop = 0;
+}
+
+function closeModal(id) {
+  $(id).classList.remove("on");
+  if (!modalSession || document.querySelector(".modal.on")) return;
+  const { scrollY, trigger } = modalSession;
+  modalSession = null;
+  document.body.classList.remove("modal-open");
+  document.documentElement.classList.remove("modal-open");
+  document.body.style.removeProperty("--modal-scroll-offset");
+  window.scrollTo(0, scrollY);
+  if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+}
+
 function openSourceModal(source = null) {
   editingSourceId = source?.id || null;
   $("source-modal-title").textContent = source ? "重命名订阅" : "添加订阅";
@@ -623,12 +654,12 @@ function openSourceModal(source = null) {
     ? "只修改本机显示名称，不会重新读取订阅。"
     : "完整地址仅用于本次导入，读取成功后不会保存。";
   $("btn-save-source").textContent = source ? "保存名称" : "保存并读取";
-  $("source-modal").classList.add("on");
-  $("source-name").focus();
+  openModal("source-modal");
+  $("source-name").focus({ preventScroll: true });
 }
 
 function closeSourceModal() {
-  $("source-modal").classList.remove("on");
+  closeModal("source-modal");
   editingSourceId = null;
 }
 
@@ -735,12 +766,12 @@ function openLandingModal(landing = null) {
   $("landing-udp").value = landing?.udp === false ? "0" : "1";
   updateLandingUrlMode();
   $("btn-delete-landing").style.display = landing ? "inline-block" : "none";
-  $("landing-modal").classList.add("on");
-  $("landing-name").focus();
+  openModal("landing-modal");
+  $("landing-name").focus({ preventScroll: true });
 }
 
 function closeLandingModal() {
-  $("landing-modal").classList.remove("on");
+  closeModal("landing-modal");
   $("landing-url").value = "";
   $("landing-pass").value = "";
   updateLandingUrlMode();
