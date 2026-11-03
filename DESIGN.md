@@ -1,6 +1,6 @@
 # EgressAnchor V0.1 Design
 
-Status: architecture locked for the pure compiler slice
+Status: compiler and loopback gateway implemented; multi-source snapshot model locked
 
 Date: 2026-08-19
 Product: EgressAnchor / 出口锚点
@@ -20,14 +20,16 @@ fixed-region access, streaming, desktop agents, browsers, and CLI tools.
 
 - Compile one complete Mihomo YAML configuration plus a policy into a complete
   Mihomo YAML configuration and a sanitized report.
+- Import up to 20 complete subscriptions as local source snapshots through
+  one-time URLs, then switch between snapshots without retaining those URLs.
 - Make a managed group structurally unable to select an ordinary upstream exit.
 - Preserve every unmanaged proxy, group, provider, rule, and global setting at
   the parsed-data level.
 - Support HTTP and SOCKS5 landing proxies.
 - Support source-policy, fixed, automatic, and direct front-hop policies.
 - Be deterministic, all-or-nothing, and safe to call repeatedly.
-- Define the HTTP subscription adapter and last-known-good cache contract before
-  implementing either.
+- Serve one stable tokenized local subscription while source snapshots are
+  selected, configured, and activated independently.
 
 ### Not in scope
 
@@ -38,6 +40,9 @@ fixed-region access, streaming, desktop agents, browsers, and CLI tools.
   settings.
 - A polished UI, packaging, installers, containers, or release automation.
 - Runtime traffic dashboards or a second proxy-selection engine.
+- Merging nodes, rules, DNS, or global settings from multiple subscriptions.
+- Automatic source refresh. Re-importing a changed source is a later explicit
+  workflow; V0.1 treats a successful import as an immutable local snapshot.
 - Claims about account safety, policy evasion, or universal client compatibility.
 
 ## 2. Non-negotiable isolation
@@ -46,7 +51,7 @@ fixed-region access, streaming, desktop agents, browsers, and CLI tools.
   references and read-only.
 - Active client profiles, databases, preferences, controllers, runtime files,
   and credential stores are outside every development and test path.
-- Development HTTP, when implemented, binds to `127.0.0.1:8788` by default.
+- Development HTTP binds to `127.0.0.1:8788` by default.
 - All tests use sanitized files under `tests/fixtures/`.
 - No test reads an environment-dependent FlClash path.
 - Published repository history excludes machine-specific handoff context and
@@ -60,8 +65,8 @@ and report redaction. Delivery concerns stay in shallow adapters outside this
 seam.
 
 ```text
-                         future HTTP adapter (127.0.0.1:8788)
- upstream URL ──fetch──> raw candidate ─┐
+                                HTTP adapter (127.0.0.1:8788)
+ one-time URL ──fetch──> raw candidate ─┐
                                        │
  policy store ─────────────────────────┼──> compile_subscription()
                                        │          │
@@ -72,7 +77,7 @@ seam.
                                                            │
  tokenized GET /sub/<token> ───────────────────────────────┘
 
- V0.1 implementation seam:
+ Pure compiler seam:
 
      source_yaml: str + policy: mapping
                      │
@@ -293,48 +298,103 @@ redacted `repr` if represented by an internal object.
 
 ## 9. HTTP subscription adapter contract
 
-The HTTP layer is a delivery adapter, not part of the compiler implementation.
-Its future external interface is tokenized `GET /sub/<token>` on loopback port
-`8788`.
+The HTTP layer is an implemented delivery adapter outside the compiler module.
+Its external interface is tokenized `GET /sub/<token>` on loopback port `8788`,
+plus local JSON endpoints used by the management UI.
+
+### Imported source profiles
+
+An upstream URL is a one-time import credential, not durable configuration.
+The adapter fetches and validates it within one request, stores the accepted raw
+Mihomo document as a mode-`0600` source snapshot, and then discards the complete
+URL. Durable source metadata contains a user-supplied name, a display origin
+(scheme, host, and optional port), the sanitized catalog, per-source bindings,
+and import timestamps. Display origins exclude user information, paths, queries,
+and fragments. Existing saved display URLs are reduced to origins when state is
+loaded.
+
+```text
+ ephemeral URL
+      │ request-local only
+      ▼
+ fetch ──> format adaptation ──> inspect_subscription()
+   │                │                    │
+   └──── failure ───┴────────────────────┘  no source created; active output unchanged
+                                           │
+                                           ▼ success
+                        sources/<id>/source.yaml + source metadata
+                                           │
+                         select for editing │ activate after compile
+                                           ▼
+                                  immutable generation pointer
+```
+
+At most 20 source profiles are stored. One profile may be selected for editing
+while another remains active and served. Landings are global local resources;
+catalogs and bindings belong to their source profile. Activating a profile
+compiles its saved snapshot and bindings first, then replaces
+`active_source_id` and the generation pointer in one state commit. A failed
+activation leaves the prior active profile and compiled output untouched.
+
+`PUT /api/bindings` requires both `source_id` and `bindings`. The source ID must
+match the currently selected source under the same lock used to save bindings.
+A stale tab receives `SOURCE_CHANGED` with HTTP 409 and must reload before
+saving; it cannot overwrite another source's bindings after a selection change.
+
+The management UI exposes an “Add subscription” modal and a source list. Adding
+performs “save and read” as one operation. Saved profiles may be renamed locally
+without re-fetching or recompiling. There is no separate save-address or refresh
+action. Deleting the active profile is rejected until another profile is
+activated.
+
+Landing input accepts either the existing explicit fields, one request-local
+`socks5://` / `http://` proxy URL, or a common scheme-less proxy string:
+`host:port`, `host:port:username:password`, `username:password@host:port`, or
+`username:password:host:port`. A URL scheme is authoritative for proxy type;
+scheme-less strings use the explicit form type. UDP and the local display name
+remain separate fields. Credentials in URLs are percent-decoded. Ambiguous
+four-part strings, unbracketed IPv6, paths, queries, fragments, unsupported
+schemes, and missing ports are rejected. The raw input is never stored or
+returned in public state.
 
 Security defaults:
 
 - Bind `127.0.0.1`; LAN serving is an explicit later option.
 - Tokens contain at least 256 bits of randomness and are never logged.
 - Request logging omits the path and query string.
-- Upstream URLs and authorization headers are never included in logs or errors.
+- Complete import URLs and authorization headers are never persisted or included
+  in logs, public state, or errors.
 - Raw and compiled cache files use mode `0600`; directories use `0700`.
 - Responses use `Cache-Control: no-store` and a body-derived ETag.
 - Fetches enforce scheme allowlists, redirect limits, connect/read timeouts,
-  response-size limits, and conditional requests.
+  and response-size limits.
 
 ### Last-known-good state machine
 
 ```text
-                    fetch + validate + compile + atomic fsync/replace
-             ┌───────────────────────────────────────────────────────┐
-             │                                                       ▼
-          EMPTY ───── success ───────────────────────────────────> READY
-            │                                                         │
-            │ GET /sub                                                │ refresh failure
-            ▼                                                         ▼
-      503, never raw                                             STALE_READY
-                                                                      │
-                                         GET /sub serves prior compiled body
-                                         and status reports the failed refresh
-                                                                      │
-                                                         next success ─┘
+          import success                 bind + compile success
+ EMPTY ──────────────────> SNAPSHOT_READY ─────────────────────> ACTIVE
+   │                              │                                │
+   │ GET /sub                     │ GET /sub                       │ import/select
+   ▼                              ▼                                ▼
+ 503, never raw                  503                         ACTIVE + selected draft
+                                                                  │
+                                        activate success ─────────┤ next ACTIVE
+                                        activate failure ─────────┘ prior ACTIVE
 ```
 
 Network errors, non-2xx responses, oversized bodies, invalid YAML, missing managed
 groups, stale fixed hops, collisions, and compiler errors never replace the
-last-known-good pair. If no successful compiled result exists, the subscription
+last-known-good generation. If no successful compiled result exists, the subscription
 endpoint returns 503. It never falls back to the uncompiled upstream document.
 
-One refresh per subscription may run at a time. Concurrent requests serve the
-current immutable compiled snapshot. A successful cache transaction replaces raw
-source, compiled output, report metadata, ETag, and upstream validators together;
-partial cache generations are never visible.
+Imports, selections, activation, binding edits, and landing edits share the
+gateway's in-process lock. Concurrent subscription requests serve the current
+immutable compiled snapshot. A successful activation replaces compiled output,
+report metadata, active source, and the generation pointer together; partial
+generations are never visible. State changes are persisted before the candidate
+is published in memory, so a failed state write leaves the prior in-memory state
+and served generation unchanged.
 
 ## 10. Compatibility and verification layers
 
@@ -402,8 +462,12 @@ implementation at a time:
 | Existing generated-looking name | Preserve unrelated names; exact collision rejects | collision fixtures | actionable safe error |
 | Multiple managed groups, one invalid | No output returned | all-or-nothing test | prior LKG remains |
 | Malformed YAML contains a password | Sanitize parser error | secret fixture | code + location only |
-| Concurrent refreshes | Single-flight + immutable snapshot | adapter integration test later | stable prior or next generation, never partial |
+| Concurrent refreshes | In-process lock + immutable generation pointer | gateway integration tests | stable prior or next generation, never partial |
 | Crash during cache write | temp file + fsync + atomic replace | adapter integration test later | prior generation survives |
+| Short-lived import URL expires | URL is used only during import | gateway import test | saved snapshot remains usable |
+| New source import fails | Do not create or select a partial profile | gateway import test | prior active source keeps serving |
+| Source activation fails | Do not move active source/generation pointers | switch integration test | prior active source keeps serving |
+| Active source deletion requested | Reject until another source is active | gateway source test | no accidental outage |
 
 No planned compiler failure is silent. Adapter-only failures are documented here
 and must receive integration tests when that adapter is implemented.
@@ -433,9 +497,9 @@ Compilation is `O(B + V + E)` time and `O(B + V)` memory, where `B` is YAML size
 `V` is proxies/groups, and `E` is explicit references. One deep copy is acceptable
 under the 8 MiB V0.1 input limit. There is no compiler-level cache or concurrency.
 
-The future adapter owns refresh scheduling, conditional HTTP requests,
-single-flight coordination, and last-known-good storage. This keeps nondeterminism
-and I/O outside the compiler seam.
+The gateway adapter owns conditional HTTP requests, in-process refresh
+coordination, and last-known-good storage. This keeps nondeterminism and I/O
+outside the compiler seam.
 
 ## 15. Sequential implementation
 

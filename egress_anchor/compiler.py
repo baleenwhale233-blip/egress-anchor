@@ -641,15 +641,43 @@ def _exclude_generated_landings(front: dict[str, Any], landing_names: set[str]) 
         front["exclude-filter"] = generated_pattern
 
 
-def compile_subscription(source_yaml: str, policy: Mapping[str, Any]) -> CompileResult:
-    """Compile a full Mihomo configuration into a fail-closed configuration."""
-    policy = _validate_policy(policy)
+def _validated_source(source_yaml: str) -> tuple[str, dict[str, Any]]:
     source_yaml = _validate_source_text(source_yaml)
     config = _validate_source_root(_load_yaml(source_yaml))
     _validate_source_schema(config)
     _validate_unique_runtime_names(config)
     _validate_source_references(config)
     _validate_acyclic(config)
+    return source_yaml, config
+
+
+def inspect_subscription(source_yaml: str) -> Mapping[str, Any]:
+    """Return a credential-free catalog for a complete Mihomo subscription."""
+    _, config = _validated_source(source_yaml)
+    groups = []
+    for group in config["proxy-groups"]:
+        groups.append(
+            {
+                "name": group["name"],
+                "type": group["type"],
+                "proxies": list(group.get("proxies", [])),
+                "use": list(group.get("use", [])),
+                "hidden": bool(group.get("hidden", False)),
+                "icon": group.get("icon"),
+            }
+        )
+    proxies = [
+        {"name": proxy["name"], "type": proxy["type"]}
+        for proxy in config.get("proxies", [])
+    ]
+    providers = sorted((config.get("proxy-providers") or {}).keys())
+    return {"groups": groups, "proxies": proxies, "providers": providers}
+
+
+def compile_subscription(source_yaml: str, policy: Mapping[str, Any]) -> CompileResult:
+    """Compile a full Mihomo configuration into a fail-closed configuration."""
+    policy = _validate_policy(policy)
+    source_yaml, config = _validated_source(source_yaml)
     if source_yaml.startswith(f"{COMPILED_MARKER}\n"):
         if not _marked_document_matches(source_yaml, policy):
             raise CompileError(

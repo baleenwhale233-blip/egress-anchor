@@ -11,3 +11,4 @@ venv/
 
 # Local agent handoff and machine-specific operational context
 HANDOFF.md
+.gstack/

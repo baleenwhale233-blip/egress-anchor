@@ -5,7 +5,7 @@ import unittest
 
 import yaml
 
-from egress_anchor import CompileError, compile_subscription
+from egress_anchor import CompileError, compile_subscription, inspect_subscription
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -45,6 +45,21 @@ def mutate_compiled(result, mutate):
 
 
 class CompilerBehaviorTests(unittest.TestCase):
+    def test_inspection_discovers_groups_without_exposing_proxy_details(self):
+        source = (FIXTURES / "provider_flow.yaml").read_text(encoding="utf-8")
+
+        catalog = inspect_subscription(source)
+
+        groups = {group["name"]: group for group in catalog["groups"]}
+        proxies = {proxy["name"]: proxy for proxy in catalog["proxies"]}
+        self.assertEqual("select", groups["AI"]["type"])
+        self.assertEqual(["HK-01"], groups["AI"]["proxies"])
+        self.assertEqual(["airport"], groups["AI"]["use"])
+        self.assertEqual(["airport"], catalog["providers"])
+        self.assertEqual({"name": "HK-01", "type": "socks5"}, proxies["HK-01"])
+        self.assertNotIn("server", repr(catalog))
+        self.assertNotIn("fixture-token", repr(catalog))
+
     def test_managed_group_can_only_select_the_generated_landing(self):
         source = (FIXTURES / "inline.yaml").read_text(encoding="utf-8")
 
