@@ -27,6 +27,14 @@ from .compiler import (
     compile_subscription,
     inspect_subscription,
 )
+from .diagnostics import (
+    BindingDiagnostics,
+    BindingProbe,
+    DEFAULT_CONTROLLER_URL,
+    DiagnosticsError,
+    validate_controller_secret,
+    validate_controller_url,
+)
 
 
 STATE_VERSION = 2
@@ -412,6 +420,7 @@ def _default_state() -> dict[str, Any]:
         "last_success_at": None,
         "last_import_at": None,
         "last_error": None,
+        "diagnostics_controller": {"url": DEFAULT_CONTROLLER_URL, "secret": ""},
     }
 
 
@@ -456,6 +465,7 @@ class GatewayService:
         *,
         fetcher: Callable[..., FetchResult] = fetch_subscription,
         now: Callable[[], float] = time.time,
+        diagnostics: Optional[BindingDiagnostics] = None,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -470,6 +480,7 @@ class GatewayService:
         os.chmod(self.generations_dir, 0o700)
         self.fetcher = fetcher
         self.now = now
+        self.diagnostics = diagnostics if diagnostics is not None else BindingDiagnostics()
         self._lock = threading.RLock()
         self._state = self._load_or_create_state()
 
@@ -675,7 +686,78 @@ class GatewayService:
                 "last_success_at": self._state.get("last_success_at"),
                 "last_import_at": self._state.get("last_import_at"),
                 "last_error": deepcopy(self._state.get("last_error")),
+                "diagnostics_controller": {
+                    "url": self._controller_settings()["url"],
+                    "has_secret": bool(self._controller_settings()["secret"]),
+                },
             }
+
+    def _controller_settings(self) -> dict[str, Any]:
+        settings = self._state.get("diagnostics_controller") or {}
+        return {
+            "url": settings.get("url", DEFAULT_CONTROLLER_URL),
+            "secret": settings.get("secret", ""),
+        }
+
+    def set_diagnostics_controller(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        with self._lock:
+            current = self._controller_settings()
+            try:
+                url = validate_controller_url(payload.get("url"))
+                clear = payload.get("clear_secret", False)
+                if not isinstance(clear, bool):
+                    raise DiagnosticsError("CONTROLLER_INVALID", "The controller key option is invalid.")
+                raw_secret = payload.get("secret", "")
+                validate_controller_secret(raw_secret)
+                secret = "" if clear else (raw_secret or current["secret"])
+            except DiagnosticsError as error:
+                raise GatewayError(error.code, error.safe_message, status=error.status) from None
+            candidate = deepcopy(self._state)
+            candidate["diagnostics_controller"] = {"url": url, "secret": secret}
+            self._save_state_value(candidate)
+            self._state = candidate
+            return self.public_state()["diagnostics_controller"]
+
+    def probe_binding(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        with self._lock:
+            source_id = payload.get("source_id")
+            if not isinstance(source_id, str) or source_id != self._state.get("selected_source_id"):
+                raise GatewayError("SOURCE_CHANGED", "Reload the selected source before testing.", status=409)
+            generation = self._state.get("active_generation")
+            if source_id != self._state.get("active_source_id") or not generation:
+                raise GatewayError("PROBE_NOT_READY", "Save and activate this source before testing.", status=422)
+            if payload.get("generation") != generation:
+                raise GatewayError("PROBE_STALE", "The active configuration changed. Reload before testing.", status=409)
+            group = payload.get("group")
+            saved = next((item for item in self._state["bindings"] if item["group"] == group), None)
+            if saved is None or not saved.get("enabled"):
+                raise GatewayError("PROBE_NOT_READY", "Enable and save this binding before testing.", status=422)
+            requested = self._normalized_bindings([payload.get("binding")])[0]
+            if requested != saved:
+                raise GatewayError("PROBE_UNSAVED", "Save your changes and update the client subscription before testing.", status=409)
+            report = self._state.get("active_report") or {}
+            compiled = next((item for item in report.get("managed_groups", []) if item["group"] == group), None)
+            landing = next((item for item in self._state["landings"] if item["id"] == saved["landing_id"]), None)
+            if compiled is None or landing is None:
+                raise GatewayError("PROBE_NOT_READY", "No compiled binding is available to test.", status=422)
+            plan = BindingProbe(
+                source_id=source_id, generation=generation, group=group,
+                landing_name=compiled["landing"], front_name=compiled["front"],
+                front_mode=compiled["front_mode"], landing=deepcopy(landing),
+            )
+            settings = deepcopy(self._controller_settings())
+        try:
+            result = self.diagnostics.run(plan, controller_url=settings["url"], controller_secret=settings["secret"])
+        except DiagnosticsError as error:
+            raise GatewayError(error.code, error.safe_message, status=error.status) from None
+        with self._lock:
+            if (
+                self._state.get("selected_source_id") != source_id
+                or self._state.get("active_generation") != generation
+                or self._controller_settings() != settings
+            ):
+                raise GatewayError("PROBE_STALE", "The configuration changed during the test. Run it again.", status=409)
+        return result
 
     def import_source(self, name: Any, url: Any) -> Mapping[str, Any]:
         with self._lock:

@@ -26,6 +26,7 @@ compile_subscription(source_yaml, policy) -> CompileResult
 - HTTP/SOCKS5 landing management
 - `source`, `fixed`, `automatic`, and `direct` front-hop policies
 - last-known-good compiled generations
+- per-group front-hop/chain delay tests and direct landing authentication/exit-IP checks
 
 Packaging and disposable client smoke tests remain future work.
 
@@ -84,6 +85,40 @@ Open <http://127.0.0.1:8788> and follow the page:
 Runtime state is stored under the ignored `dev-data/` directory by default.
 The state and generated client YAML contain plaintext landing credentials and
 use filesystem mode `0600`; do not upload or share that directory.
+
+## Test a managed chain
+
+1. Save and activate the source, then update the local subscription in your client.
+2. Expand **客户端连接设置** and enter the client's loopback external-controller
+   address and optional access key. The default is `http://127.0.0.1:9090`.
+3. Choose **测试** beside a saved, enabled policy group.
+
+The expanded report separates:
+
+- **整链**: a real delay request through the generated landing outbound, including
+  its front hop; a timeout remains a failed result.
+- **组内选中**: whether the running client has the singleton landing selected.
+- **前置**: the running client's selected front node and its individual delay.
+  Direct mode has no front-hop measurement.
+- **落地 ISP**: an independent direct HTTP/SOCKS5 authentication and exit-IP lookup.
+  Its elapsed verification time is labelled separately from network delay.
+
+Diagnostics describe the client's current running configuration. Refresh the
+client subscription after source, landing, or binding changes. The controller
+API does not expose the gateway's generation ID, so it cannot prove which local
+subscription generation the client imported. This feature never switches client
+selections, reloads the client, or rewrites its files. Unsaved rows and outdated
+gateway-page requests are rejected; results are discarded if local configuration
+changes while a test runs. At most two tests run together, and subscription
+delivery stays available during tests.
+
+The access key stays in mode-`0600` local state and is omitted from API responses
+and reports. Controller requests bypass environment proxies, reject redirects,
+and accept loopback endpoints only. Delay requests use the
+[Mihomo individual proxy delay API](https://wiki.metacubex.one/en/api/)
+with an HTTPS connectivity target; landing verification contacts
+[ipify](https://www.ipify.org/) through that landing. No download-bandwidth test
+or batch test of all candidates is performed.
 
 ## Compiler interface
 
@@ -148,8 +183,9 @@ Fixtures cover compiler behavior plus source import and switching, URL-free
 state migration, LKG activation failures, loopback HTTP APIs, Host validation,
 tokenized delivery, and the management UI.
 
-Tests do not read FlClash files, preferences, databases, controllers, production
-state, or network services.
+Tests use disposable loopback HTTP/controller/proxy fixtures. They do not read
+FlClash files, preferences, databases, live controllers, production state, or
+external network services.
 
 ## Development isolation
 

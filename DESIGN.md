@@ -30,11 +30,13 @@ fixed-region access, streaming, desktop agents, browsers, and CLI tools.
 - Be deterministic, all-or-nothing, and safe to call repeatedly.
 - Serve one stable tokenized local subscription while source snapshots are
   selected, configured, and activated independently.
+- Offer on-demand per-group diagnostics: current front-hop delay, complete-chain
+  connectivity/delay, selected landing, and separate landing authentication/IP.
 
 ### Not in scope
 
 - Node-only subscription input. V0.1 accepts full Mihomo configurations only.
-- Legacy FlClash profile injection, controller calls, database writes, plist
+- Legacy FlClash profile injection, controller mutations, database writes, plist
   changes, reloads, and runtime YAML writes.
 - DNS, TUN, IPv6, WebRTC, UDP policy, LAN proxy sharing, and other global client
   settings.
@@ -397,6 +399,42 @@ is published in memory, so a failed state write leaves the prior in-memory state
 and served generation unchanged.
 
 ## 10. Compatibility and verification layers
+
+### On-demand chain diagnostics
+
+`POST /api/bindings/probe` takes `source_id`, `generation`, `group`, and the
+page's `binding`. The gateway snapshots the saved active binding, generated names
+from its compiler report, landing credentials, and controller settings under its
+lock. Unsaved/inactive/stale requests are rejected before network access. Network
+work runs after releasing the lock, then the gateway verifies the generation,
+selected source, and controller settings again before returning results.
+
+The separate diagnostics module uses only individual Mihomo proxy/selection GETs
+and individual proxy-delay GETs. It never calls group-wide delay endpoints, which
+can change pinned automatic selections, or any client mutation endpoint. It
+requires the public group to select its singleton generated landing, resolves
+nested front selections with a bounded walk, and measures the landing outbound
+and selected front separately. A changed front selection is reported. Direct
+mode skips the front measurement. Failures remain explicit; successful component
+checks are never added together to invent an end-to-end delay.
+
+`PUT /api/diagnostics/controller` stores a validated loopback-only address and an
+optional key in private local state. Empty key input preserves a saved key;
+`clear_secret: true` removes it. Public state exposes only `url` and `has_secret`.
+GETs bypass environment proxy configuration and refuse redirects. Raw controller
+errors, keys, and landing credentials are excluded from reports.
+
+Landing verification authenticates directly through an HTTP CONNECT or SOCKS5
+tunnel and retrieves an HTTPS exit-IP response. Its `elapsed_ms` is verification
+duration, distinct from a core's `ms` delay. A failed direct verification can
+coexist with a working chain when the local network cannot reach the landing.
+The UI labels these scopes separately. Tests use disposable proxy fixtures.
+
+Two diagnostics may run concurrently. Results remain request-local; no test
+changes bindings, activates a source, or replaces a compiled generation. The UI
+discards results when source/configuration inputs change. The client API does
+not expose subscription generation identity: reports describe its named running
+outbounds, and users update the client subscription after gateway changes.
 
 | Layer | V0.1 expectation | Environment |
 | --- | --- | --- |
