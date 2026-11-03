@@ -245,7 +245,16 @@ def _handler_class(service: GatewayService, static_dir: Path):
                         self._send_json(200, {"ok": True, "source": source})
                         return
                 if path == "/api/bindings":
-                    result = service.update_bindings(payload.get("bindings"))
+                    source_id = payload.get("source_id")
+                    if not isinstance(source_id, str) or not source_id:
+                        raise GatewayError(
+                            "SOURCE_CHANGED",
+                            "The selected source changed. Reload the page before saving.",
+                            status=409,
+                        )
+                    result = service.update_bindings(
+                        payload.get("bindings"), expected_source_id=source_id
+                    )
                     self._send_json(200, result)
                     return
                 raise GatewayError("NOT_FOUND", "The requested resource was not found.", status=404)

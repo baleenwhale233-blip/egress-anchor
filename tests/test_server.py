@@ -120,6 +120,7 @@ class GatewayHttpTests(unittest.TestCase):
             "/api/bindings",
             method="PUT",
             payload={
+                "source_id": imported["source"]["id"],
                 "bindings": [
                     {
                         "group": "AI",
@@ -148,6 +149,81 @@ class GatewayHttpTests(unittest.TestCase):
         self.assertEqual(304, status)
         self.assertEqual(etag, conditional_headers["ETag"])
         self.assertEqual(b"", conditional_body)
+
+    def test_http_bindings_require_an_explicit_source_id(self):
+        self.json_request(
+            "/api/sources",
+            method="POST",
+            payload={"name": "Primary", "url": "https://source.example.invalid/"},
+        )
+        _, _, before = self.json_request("/api/state")
+
+        for source_id in (None, "", 123, False, [], {}):
+            with self.subTest(source_id=source_id):
+                payload = {"bindings": []}
+                if source_id is not None:
+                    payload["source_id"] = source_id
+                status, _, result = self.json_request(
+                    "/api/bindings", method="PUT", payload=payload
+                )
+
+                self.assertEqual(409, status)
+                self.assertEqual("SOURCE_CHANGED", result["error"]["code"])
+                _, _, after = self.json_request("/api/state")
+                self.assertEqual(before, after)
+
+    def test_stale_tab_cannot_overwrite_another_sources_bindings(self):
+        _, _, first = self.json_request(
+            "/api/sources",
+            method="POST",
+            payload={"name": "Primary", "url": "https://primary.example.invalid/"},
+        )
+        _, _, landing = self.json_request(
+            "/api/landings",
+            method="POST",
+            payload={
+                "name": "Fixture landing",
+                "type": "socks5",
+                "server": "landing.example.invalid",
+                "port": 1080,
+            },
+        )
+        bindings = [{
+            "group": "AI",
+            "enabled": True,
+            "landing_id": landing["landing"]["id"],
+            "front_hop": {"mode": "source"},
+        }]
+        status, _, _ = self.json_request(
+            "/api/bindings",
+            method="PUT",
+            payload={"source_id": first["source"]["id"], "bindings": bindings},
+        )
+        self.assertEqual(200, status)
+        _, _, second = self.json_request(
+            "/api/sources",
+            method="POST",
+            payload={"name": "Backup", "url": "https://backup.example.invalid/"},
+        )
+        _, _, before = self.json_request("/api/state")
+        subscription_path = before["state"]["subscription"]["path"]
+        _, _, compiled_before = self.request(subscription_path)
+
+        bindings[0]["front_hop"] = {"mode": "direct"}
+        status, _, result = self.json_request(
+            "/api/bindings",
+            method="PUT",
+            payload={"source_id": first["source"]["id"], "bindings": bindings},
+        )
+
+        self.assertEqual(409, status)
+        self.assertEqual("SOURCE_CHANGED", result["error"]["code"])
+        _, _, after = self.json_request("/api/state")
+        self.assertEqual(before, after)
+        self.assertEqual(first["source"]["id"], after["state"]["active_source_id"])
+        self.assertEqual(second["source"]["id"], after["state"]["selected_source_id"])
+        _, _, compiled_after = self.request(subscription_path)
+        self.assertEqual(compiled_before, compiled_after)
 
     def test_http_can_select_a_saved_source(self):
         _, _, first = self.json_request(

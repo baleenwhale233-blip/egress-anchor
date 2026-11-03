@@ -244,6 +244,7 @@ const errorMessages = {
   SOURCE_LIMIT_REACHED: "最多保存 20 个来源，请先删除不用的来源。",
   SOURCE_NOT_FOUND: "这个订阅来源已不存在。",
   SOURCE_NOT_SELECTED: "请先选择要配置的订阅来源。",
+  SOURCE_CHANGED: "订阅来源已切换，未保存配置。请确认当前来源后重新配置。",
   SOURCE_NOT_CONFIGURED: "请先为这个来源启用至少一个策略组。",
   SOURCE_ACTIVE: "正在使用这个来源。请先启用其他来源，再删除它。",
   SOURCE_CACHE_MISSING: "本地订阅快照不存在，请重新添加这个来源。",
@@ -648,7 +649,7 @@ async function saveBindings() {
   }
   setBusy(true, "正在验证配置并启用来源…");
   try {
-    await api("/api/bindings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bindings: state.bindings }) });
+    await api("/api/bindings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_id: state.selected_source_id, bindings: state.bindings }) });
     await reloadState(); $("dock-msg").textContent = "配置已保存，当前来源已启用。";
   } catch (error) { await reloadState(); $("dock-msg").textContent = `${error.message}（仍保留最后成功版本）`; }
   finally { setBusy(false); }

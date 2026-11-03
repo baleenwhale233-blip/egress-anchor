@@ -95,16 +95,18 @@ def _validated_http_url(raw_url: Any) -> str:
     return url
 
 
-def _display_url(url: str) -> str:
-    parsed = urllib.parse.urlsplit(url)
-    host = parsed.hostname or ""
-    if ":" in host and not host.startswith("["):
-        host = f"[{host}]"
-    if parsed.port:
-        host = f"{host}:{parsed.port}"
-    path = parsed.path or "/"
-    suffix = "…" if parsed.query else ""
-    return urllib.parse.urlunsplit((parsed.scheme, host, path, suffix, ""))
+def _display_url(url: Any) -> str:
+    """Retain only the origin; any URL component may contain credentials."""
+    try:
+        parsed = urllib.parse.urlsplit(_validated_http_url(url))
+        host = parsed.hostname or ""
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        if parsed.port is not None:
+            host = f"{host}:{parsed.port}"
+    except (GatewayError, ValueError):
+        return ""
+    return urllib.parse.urlunsplit((parsed.scheme, host, "", "", ""))
 
 
 def _validated_source_name(raw_name: Any) -> str:
@@ -413,6 +415,16 @@ def _default_state() -> dict[str, Any]:
     }
 
 
+def _state_with_display_origins(state: Mapping[str, Any]) -> dict[str, Any]:
+    sanitized = deepcopy(dict(state))
+    sources = sanitized.get("sources", [])
+    if isinstance(sources, list):
+        for source in sources:
+            if isinstance(source, dict):
+                source["display_url"] = _display_url(source.get("display_url"))
+    return sanitized
+
+
 def _atomic_write(path: Path, content: str, *, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=".tmp-", dir=str(path.parent))
@@ -488,6 +500,10 @@ class GatewayService:
                 "The local gateway state is unsupported.",
                 status=500,
             )
+        sanitized = _state_with_display_origins(state)
+        if sanitized != state:
+            self._save_state_value(sanitized)
+            state = sanitized
         os.chmod(self.state_path, 0o600)
         return state
 
@@ -566,11 +582,14 @@ class GatewayService:
     def _save_state_value(self, state: Mapping[str, Any]) -> None:
         _atomic_write(
             self.state_path,
-            json.dumps(state, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+            json.dumps(
+                _state_with_display_origins(state),
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+            + "\n",
         )
-
-    def _save_state(self) -> None:
-        self._save_state_value(self._state)
 
     def _timestamp(self) -> int:
         return int(self.now())
@@ -588,12 +607,14 @@ class GatewayService:
         return self.sources_dir / source_id / "source.yaml"
 
     def _record_error(self, error: GatewayError) -> None:
-        self._state["last_error"] = {
+        candidate = deepcopy(self._state)
+        candidate["last_error"] = {
             "code": error.code,
             "message": error.safe_message,
             "at": self._timestamp(),
         }
-        self._save_state()
+        self._save_state_value(candidate)
+        self._state = candidate
 
     def public_state(self) -> Mapping[str, Any]:
         with self._lock:
@@ -720,8 +741,8 @@ class GatewayService:
                 snapshot_path.parent.mkdir(parents=True, exist_ok=False)
                 os.chmod(snapshot_path.parent, 0o700)
                 _atomic_write(snapshot_path, source_yaml)
+                self._save_state_value(candidate)
                 self._state = candidate
-                self._save_state()
                 return next(
                     source
                     for source in self.public_state()["sources"]
@@ -767,8 +788,8 @@ class GatewayService:
             candidate["catalog"] = deepcopy(selected["catalog"])
             candidate["bindings"] = deepcopy(selected.get("bindings", []))
             candidate["last_error"] = None
+            self._save_state_value(candidate)
             self._state = candidate
-            self._save_state()
             return next(
                 item
                 for item in self.public_state()["sources"]
@@ -1035,8 +1056,8 @@ class GatewayService:
                 source_yaml = snapshot_path.read_text(encoding="utf-8")
                 self._compiled_state(candidate, source_yaml, source=active_source)
             candidate["last_error"] = None
+            self._save_state_value(candidate)
             self._state = candidate
-            self._save_state()
             return next(
                 item
                 for item in self.public_state()["landings"]
@@ -1087,8 +1108,8 @@ class GatewayService:
                 candidate["active_report"] = None
                 candidate["active_source_id"] = None
             candidate["last_error"] = None
+            self._save_state_value(candidate)
             self._state = candidate
-            self._save_state()
 
     def _normalized_bindings(self, bindings: Any) -> list[dict[str, Any]]:
         if not isinstance(bindings, list):
@@ -1204,8 +1225,22 @@ class GatewayService:
         state["last_success_at"] = self._timestamp()
         return result
 
-    def update_bindings(self, bindings: Any) -> Mapping[str, Any]:
+    def update_bindings(
+        self,
+        bindings: Any,
+        *,
+        expected_source_id: Optional[str] = None,
+    ) -> Mapping[str, Any]:
         with self._lock:
+            if (
+                expected_source_id is not None
+                and expected_source_id != self._state.get("selected_source_id")
+            ):
+                raise GatewayError(
+                    "SOURCE_CHANGED",
+                    "The selected source changed. Reload the page before saving.",
+                    status=409,
+                )
             normalized = self._normalized_bindings(bindings)
             candidate = deepcopy(self._state)
             candidate["bindings"] = normalized

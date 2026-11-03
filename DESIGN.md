@@ -307,8 +307,11 @@ plus local JSON endpoints used by the management UI.
 An upstream URL is a one-time import credential, not durable configuration.
 The adapter fetches and validates it within one request, stores the accepted raw
 Mihomo document as a mode-`0600` source snapshot, and then discards the complete
-URL. Durable state contains only a user-supplied name, a query-free display
-origin, the sanitized catalog, per-source bindings, and import timestamps.
+URL. Durable source metadata contains a user-supplied name, a display origin
+(scheme, host, and optional port), the sanitized catalog, per-source bindings,
+and import timestamps. Display origins exclude user information, paths, queries,
+and fragments. Existing saved display URLs are reduced to origins when state is
+loaded.
 
 ```text
  ephemeral URL
@@ -332,6 +335,11 @@ catalogs and bindings belong to their source profile. Activating a profile
 compiles its saved snapshot and bindings first, then replaces
 `active_source_id` and the generation pointer in one state commit. A failed
 activation leaves the prior active profile and compiled output untouched.
+
+`PUT /api/bindings` requires both `source_id` and `bindings`. The source ID must
+match the currently selected source under the same lock used to save bindings.
+A stale tab receives `SOURCE_CHANGED` with HTTP 409 and must reload before
+saving; it cannot overwrite another source's bindings after a selection change.
 
 The management UI exposes an “Add subscription” modal and a source list. Adding
 performs “save and read” as one operation. Saved profiles may be renamed locally
@@ -384,7 +392,9 @@ Imports, selections, activation, binding edits, and landing edits share the
 gateway's in-process lock. Concurrent subscription requests serve the current
 immutable compiled snapshot. A successful activation replaces compiled output,
 report metadata, active source, and the generation pointer together; partial
-generations are never visible.
+generations are never visible. State changes are persisted before the candidate
+is published in memory, so a failed state write leaves the prior in-memory state
+and served generation unchanged.
 
 ## 10. Compatibility and verification layers
 
