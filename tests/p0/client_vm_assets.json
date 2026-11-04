@@ -1,0 +1,18 @@
+{
+  "platform": "linux-arm64",
+  "ubuntu_image": {
+    "file": "noble-server-cloudimg-arm64.img",
+    "url": "https://cloud-images.ubuntu.com/noble/20261017/noble-server-cloudimg-arm64.img",
+    "sha256": "50e24e1fb79e89116e939d90aa7738f7af48c442fa1bc2510131e0b39c50348e"
+  },
+  "flclash": {
+    "file": "FlClash-0.9.2-linux-arm64.deb",
+    "url": "https://github.com/chen08209/FlClash/releases/download/v0.9.2/FlClash-0.9.2-linux-arm64.deb",
+    "sha256": "15702119218d288943978611db674eeb7495911d07ba5e1444744361353df3e6"
+  },
+  "clash_verge_rev": {
+    "file": "Clash.Verge_2.5.10_arm64.deb",
+    "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.10/Clash.Verge_2.5.10_arm64.deb",
+    "sha256": "729c3bdc84207984fd894cc0ff14e6451fc9335060b5c7efbe378a9f4dbdf8fd"
+  }
+}

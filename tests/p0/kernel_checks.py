@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from kernel_session import KernelSession
 from gpt_strict_checks import check_gpt_strict
+from automatic_front_checks import check_automatic_front
 from loopback_fixtures import fixture, free_port, ping, tunnel, udp_probe
 
 
@@ -135,6 +136,7 @@ def run(binary, checks):
         assert unrelated_udp, "service UDP guard also blocked unrelated UDP"
         checks.append({"name": "unrelated_udp_preserved_with_guard", "passed": unrelated_udp})
         check_gpt_strict(core, config, ports, checks)
+        check_automatic_front(core, config, ports, checks, events, other)
         return {"scope": "standalone Mihomo, loopback fixtures, TUN disabled; not desktop-client acceptance",
                 "version": version, "checks": checks, "proxy_events": events,
                 "unguarded_udp_contained": not udp_baseline}

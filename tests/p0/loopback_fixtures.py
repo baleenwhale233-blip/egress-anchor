@@ -5,6 +5,7 @@ import select
 import socket
 import socketserver
 import threading
+import time
 
 
 def read_exact(connection, length):
@@ -61,9 +62,20 @@ class UdpEcho(socketserver.BaseRequestHandler):
         connection.sendto(data, self.client_address)
 
 
+class HealthReply(socketserver.BaseRequestHandler):
+    def handle(self):
+        self.request.settimeout(5)
+        read_headers(self.request)
+        self.request.sendall(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+
+
 class ForwardProxy(socketserver.BaseRequestHandler):
     def handle(self):
         try:
+            if self.server.outage is not None and self.server.outage.is_set():
+                return
+            if self.server.connect_delay:
+                time.sleep(self.server.connect_delay)
             self.request.settimeout(5)
             if self.server.kind == "http":
                 command, authority, _ = read_headers(self.request).split(b"\r\n", 1)[0].split()
@@ -106,11 +118,12 @@ class TcpServer(socketserver.ThreadingTCPServer):
 
 
 @contextmanager
-def fixture(kind, label="", events=None):
-    handler = {"echo": Echo, "udp": UdpEcho}.get(kind, ForwardProxy)
+def fixture(kind, label="", events=None, *, outage=None, connect_delay=0, port=0):
+    handler = {"echo": Echo, "udp": UdpEcho, "health": HealthReply}.get(kind, ForwardProxy)
     server_type = socketserver.ThreadingUDPServer if kind == "udp" else TcpServer
-    with server_type(("127.0.0.1", 0), handler) as server:
+    with server_type(("127.0.0.1", port), handler) as server:
         server.kind, server.label, server.events = kind, label, events
+        server.outage, server.connect_delay = outage, connect_delay
         thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
         thread.start()
         try:
