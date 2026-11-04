@@ -4,12 +4,17 @@ A local subscription gateway for stable, policy-bound egress.
 
 EgressAnchor compiles a complete Mihomo configuration so selected policy groups
 must use a configured HTTP or SOCKS5 landing proxy. Unmanaged routing remains
-semantically unchanged. If a required front hop or landing fails, the managed
-path fails instead of falling back to an ordinary upstream exit.
+semantically unchanged. For TCP, if a required front hop or landing fails, the
+managed path fails instead of falling back to an ordinary upstream exit.
 
 EgressAnchor does not promise account safety, bypass platform enforcement, or
 grant permission to ignore provider terms. AI tools are an important use case,
 not the product boundary.
+
+Current limitation: the singleton landing topology alone does not constrain UDP
+when the chosen outbound cannot carry it. In pinned Mihomo v1.19.33 tests, UDP
+continued to a later `DIRECT` rule. Explicit per-service UDP constraints remain
+to be implemented; see the [P0 findings](功能列表/F009-P0验证.md#3-udp-缺口与后续要求).
 
 ## Status
 
@@ -26,8 +31,18 @@ compile_subscription(source_yaml, policy) -> CompileResult
 - HTTP/SOCKS5 landing management
 - `source`, `fixed`, `automatic`, and `direct` front-hop policies
 - last-known-good compiled generations
+- per-group front-hop/chain delay tests and direct landing authentication/exit-IP checks
 
 Packaging and disposable client smoke tests remain future work.
+
+## Project navigation
+
+Start with the [feature index](功能列表/索引.md) and [current work](任务进展/当前.md),
+then follow only the links relevant to the task. The
+[maintenance boundaries](功能列表/F008-维护与分层.md) describe incremental module splitting.
+Product and development plans describe future work; the runtime instructions below describe current V0.1 behavior.
+The [V0.1 engineering design](DESIGN.md) records the current implementation contract;
+the [changelog](CHANGELOG.md) summarizes changes and known limitations.
 
 ## Why the topology fails closed
 
@@ -84,6 +99,40 @@ Open <http://127.0.0.1:8788> and follow the page:
 Runtime state is stored under the ignored `dev-data/` directory by default.
 The state and generated client YAML contain plaintext landing credentials and
 use filesystem mode `0600`; do not upload or share that directory.
+
+## Test a managed chain
+
+1. Save and activate the source, then update the local subscription in your client.
+2. Expand **客户端连接设置** and enter the client's loopback external-controller
+   address and optional access key. The default is `http://127.0.0.1:9090`.
+3. Choose **测试** beside a saved, enabled policy group.
+
+The expanded report separates:
+
+- **整链**: a real delay request through the generated landing outbound, including
+  its front hop; a timeout remains a failed result.
+- **组内选中**: whether the running client has the singleton landing selected.
+- **前置**: the running client's selected front node and its individual delay.
+  Direct mode has no front-hop measurement.
+- **落地 ISP**: an independent direct HTTP/SOCKS5 authentication and exit-IP lookup.
+  Its elapsed verification time is labelled separately from network delay.
+
+Diagnostics describe the client's current running configuration. Refresh the
+client subscription after source, landing, or binding changes. The controller
+API does not expose the gateway's generation ID, so it cannot prove which local
+subscription generation the client imported. This feature never switches client
+selections, reloads the client, or rewrites its files. Unsaved rows and outdated
+gateway-page requests are rejected; results are discarded if local configuration
+changes while a test runs. At most two tests run together, and subscription
+delivery stays available during tests.
+
+The access key stays in mode-`0600` local state and is omitted from API responses
+and reports. Controller requests bypass environment proxies, reject redirects,
+and accept loopback endpoints only. Delay requests use the
+[Mihomo individual proxy delay API](https://wiki.metacubex.one/en/api/)
+with an HTTPS connectivity target; landing verification contacts
+[ipify](https://www.ipify.org/) through that landing. No download-bandwidth test
+or batch test of all candidates is performed.
 
 ## Compiler interface
 
@@ -148,8 +197,9 @@ Fixtures cover compiler behavior plus source import and switching, URL-free
 state migration, LKG activation failures, loopback HTTP APIs, Host validation,
 tokenized delivery, and the management UI.
 
-Tests do not read FlClash files, preferences, databases, controllers, production
-state, or network services.
+Tests use disposable loopback HTTP/controller/proxy fixtures. They do not read
+FlClash files, preferences, databases, live controllers, production state, or
+external network services.
 
 ## Development isolation
 
@@ -168,6 +218,10 @@ subscriptions and historical Clash dialects are out of scope for V0.1.
 Before claiming client compatibility, generated fixtures still need validation
 with a pinned Mihomo binary and disposable import smoke tests in at least FlClash
 and Clash Verge Rev. No real local client profile may be used for those tests.
+
+The first [pinned-core P0 checks](tests/p0/README.md) now exercise loopback traffic,
+reloads and selective connection closure. They do not complete desktop-client
+acceptance and intentionally report the UDP limitation above as a failing check.
 
 Relevant Mihomo documentation:
 

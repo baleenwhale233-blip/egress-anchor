@@ -31,6 +31,7 @@ class GatewayHttpTests(unittest.TestCase):
             Path(self.temp.name) / "dev-data",
             fetcher=SingleFetcher(source),
         )
+        self.service = service
         self.server = create_server(service, host="127.0.0.1", port=0)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -79,6 +80,46 @@ class GatewayHttpTests(unittest.TestCase):
                 f"http://127.0.0.1:{self.server.server_port}/sub/"
             )
         )
+
+    def test_diagnostics_connection_settings_never_return_the_access_key(self):
+        status, _, result = self.json_request(
+            "/api/diagnostics/controller", method="PUT",
+            payload={"url": "http://127.0.0.1:19090", "secret": "fixture-controller-secret"},
+        )
+
+        self.assertEqual(200, status)
+        self.assertTrue(result["controller"]["has_secret"])
+        self.assertNotIn("fixture-controller-secret", repr(result))
+        _, _, state = self.json_request("/api/state")
+        self.assertNotIn("fixture-controller-secret", repr(state))
+
+    def test_http_binding_probe_uses_saved_configuration_without_changing_it(self):
+        class FixtureDiagnostics:
+            def run(self, plan, **_settings):
+                return {"group": plan.group, "source_id": plan.source_id,
+                        "generation": plan.generation, "chain": {"ok": True, "ms": 192}}
+        self.service.diagnostics = FixtureDiagnostics()
+        _, _, imported = self.json_request("/api/sources", method="POST",
+            payload={"name": "Primary", "url": "https://source.example.invalid/"})
+        _, _, landing = self.json_request("/api/landings", method="POST", payload={
+            "name": "Fixture", "type": "socks5", "server": "landing.example.invalid", "port": 1080,
+        })
+        binding = {"group": "AI", "enabled": True, "landing_id": landing["landing"]["id"],
+                   "front_hop": {"mode": "source"}}
+        self.json_request("/api/bindings", method="PUT",
+            payload={"source_id": imported["source"]["id"], "bindings": [binding]})
+        _, _, before = self.json_request("/api/state")
+
+        status, _, body = self.json_request("/api/bindings/probe", method="POST", payload={
+            "source_id": imported["source"]["id"], "generation": before["state"]["subscription"]["generation"],
+            "group": "AI", "binding": binding,
+        })
+
+        self.assertEqual(200, status)
+        self.assertEqual(192, body["probe"]["chain"]["ms"])
+        _, _, after = self.json_request("/api/state")
+        self.assertEqual(before, after)
+        self.assertNotIn("fixture-password", repr(body))
 
     def test_http_workflow_imports_compiles_and_serves_subscription(self):
         status, _, imported = self.json_request(

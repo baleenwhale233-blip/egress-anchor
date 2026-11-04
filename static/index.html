@@ -26,6 +26,9 @@
       color: var(--text);
       font: 13.5px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif;
     }
+    html { scrollbar-gutter: stable; }
+    html.modal-open { overflow: hidden; overscroll-behavior: none; }
+    body.modal-open { position: fixed; top: var(--modal-scroll-offset); left: 0; right: 0; width: 100%; overflow: hidden; }
     body { padding: 20px 22px 88px; max-width: 1280px; margin: 0 auto; }
     h1 { font-size: 18px; font-weight: 650; margin: 0 0 2px; letter-spacing: -0.02em; }
     button, select, input {
@@ -61,6 +64,7 @@
     .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; }
     .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
     .row2 { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+    .credentials-row { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
     .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
     .ops { display: flex; gap: 6px; flex-wrap: wrap; }
     label.f { display: block; margin: 0 0 8px; }
@@ -72,13 +76,30 @@
     .landing .m, .source .m { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-all; }
     .landing .ops, .source .ops { margin-top: 8px; }
     .empty { color: var(--muted); padding: 12px 4px; }
-    .table-wrap { overflow: auto; max-height: 430px; }
+    .table-wrap { overflow: auto; max-height: 430px; container-type: inline-size; }
     table { width: 100%; border-collapse: collapse; min-width: 720px; }
     th { position: sticky; top: 0; z-index: 1; text-align: left; color: var(--muted); background: var(--panel); font-weight: 500; padding: 7px 6px; border-bottom: 1px solid var(--line); font-size: 12px; }
     td { padding: 7px 6px; border-bottom: 1px solid #23262b; vertical-align: middle; }
     .banner { background: #2a2218; border: 1px solid #4a3c28; color: #efd08a; padding: 8px 10px; border-radius: 8px; margin-bottom: 12px; font-size: 12.5px; }
     .banner.ok { background: #17241d; border-color: #2a4a38; color: #b6e0c8; }
     .banner.bad { background: #2b1b19; border-color: #5a322c; color: var(--danger); }
+    .probe-row td { background: #14161a; padding: 10px 12px; }
+    .probe-report { display: grid; gap: 6px; font-size: 12.5px; max-width: calc(100cqw - 24px); }
+    .probe-line { display: flex; gap: 9px; align-items: baseline; }
+    .probe-line > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+    .probe-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--danger); }
+    .probe-dot.ok { background: var(--ok); }
+    .probe-dot.run { background: var(--warn); }
+    .probe-label { color: var(--muted); flex: none; min-width: 64px; }
+    .probe-ms { color: var(--ok); font-variant-numeric: tabular-nums; }
+    .probe-note { color: var(--muted); margin: 2px 0 0 16px; }
+    .probe-warning { color: var(--warn); }
+    .probe-button { white-space: nowrap; }
+    .controller-settings { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+    .controller-settings summary { cursor: pointer; color: var(--muted); }
+    .controller-fields { max-width: 560px; margin-top: 12px; }
+    .inline-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    .inline-check input { width: auto; min-height: 0; }
     .st { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; margin-left: 6px; vertical-align: 1px; }
     .st.on { background: #1c3d2e; color: #8ee0b5; }
     .st.pending { background: #3a301c; color: #efd08a; }
@@ -99,9 +120,12 @@
     .dock { position: fixed; left: 0; right: 0; bottom: 0; background: #14161aee; border-top: 1px solid var(--line); backdrop-filter: blur(10px); z-index: 10; }
     .dock-in { max-width: 1280px; margin: 0 auto; padding: 10px 22px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .dock .grow { flex: 1; color: var(--muted); font-size: 12px; min-width: 220px; }
-    .modal { position: fixed; inset: 0; background: #0009; display: none; align-items: center; justify-content: center; padding: 20px; z-index: 20; }
+    .modal { position: fixed; inset: 0; background: #0009; display: none; align-items: center; justify-content: center; padding: 20px; z-index: 20; overflow: hidden; overscroll-behavior: none; }
     .modal.on { display: flex; }
-    .sheet { width: min(520px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: 0 24px 80px #0008; }
+    .sheet { width: min(520px, 100%); max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); overflow-y: auto; overscroll-behavior: contain; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: 0 24px 80px #0008; }
+    .modal-title { margin: 0; color: var(--text); font-size: 18px; line-height: 1.3; font-weight: 650; letter-spacing: -0.02em; }
+    .modal-close { display: inline-flex; align-items: center; justify-content: center; width: 32px; min-height: 32px; flex: none; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 24px; line-height: 1; }
+    .modal-close:hover { background: var(--panel2); color: var(--text); }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
     @media (max-width: 980px) {
       body { padding: 16px; }
@@ -144,11 +168,22 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>启用</th><th>策略组</th><th>落地</th><th>连接方式</th><th>固定节点/组</th></tr></thead>
+          <thead><tr><th>启用</th><th>策略组</th><th>落地</th><th>连接方式</th><th>固定节点/组</th><th>测试</th></tr></thead>
           <tbody id="binding-rows"></tbody>
         </table>
       </div>
       <p class="sub" style="margin:10px 0 0">沿用订阅策略：保留原组类型和候选；自动测速选择：从原候选中自动选择；固定节点/组：只使用指定前置；直连落地：不经过订阅节点，最终出口仍是落地。</p>
+      <p class="sub" style="margin:8px 0 0">测试前先保存配置，并在客户端更新本地订阅。前置和整链延迟由客户端内核实测。</p>
+      <details class="controller-settings" id="controller-settings">
+        <summary>客户端连接设置</summary>
+        <div class="controller-fields">
+          <label class="f"><span>客户端控制地址</span><input id="controller-url" type="url" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:9090" /></label>
+          <label class="f"><span>访问密钥（可选）</span><input id="controller-secret" type="password" autocomplete="new-password" aria-describedby="controller-secret-hint" /><small class="field-hint" id="controller-secret-hint">填写客户端外部控制设置中的密钥。</small></label>
+          <label class="inline-check" id="controller-clear-field" hidden><input id="controller-clear-secret" type="checkbox" />清除已保存密钥</label>
+          <p class="sub" style="margin:8px 0">从客户端的外部控制设置中复制地址和密钥。测试会读取当前节点并发起延迟拨测，连接地址仅支持本机。</p>
+          <button id="btn-save-controller">保存连接</button>
+        </div>
+      </details>
     </section>
   </div>
 
@@ -184,7 +219,7 @@
 
   <div class="modal" id="source-modal" role="dialog" aria-modal="true" aria-labelledby="source-modal-title" aria-describedby="source-modal-hint">
     <div class="sheet">
-      <div class="head"><div class="k" id="source-modal-title">添加订阅</div><button id="btn-close-source-modal">关闭</button></div>
+      <div class="head"><h2 class="modal-title" id="source-modal-title">添加订阅</h2><button class="modal-close" id="btn-close-source-modal" aria-label="关闭"><span aria-hidden="true">×</span></button></div>
       <label class="f"><span>来源名称</span><input id="source-name" maxlength="80" autocomplete="off" placeholder="主力订阅" /></label>
       <label class="f" id="source-url-field"><span>完整 Mihomo 订阅 URL</span><input id="source-url" type="url" autocomplete="off" placeholder="https://provider.example/sub?token=…" /></label>
       <p class="sub" id="source-modal-hint">完整地址仅用于本次导入，读取成功后不会保存。</p>
@@ -196,7 +231,7 @@
 
   <div class="modal" id="landing-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="sheet">
-      <div class="head"><div class="k" id="modal-title">添加落地代理</div><button id="btn-close-modal">关闭</button></div>
+      <div class="head"><h2 class="modal-title" id="modal-title">添加落地代理</h2><button class="modal-close" id="btn-close-modal" aria-label="关闭"><span aria-hidden="true">×</span></button></div>
       <input id="landing-id" type="hidden" />
       <label class="f"><span>名称</span><input id="landing-name" placeholder="US Residential 1" /></label>
       <label class="f"><span>代理地址（可选）</span><input id="landing-url" autocomplete="off" spellcheck="false" placeholder="socks5://user:password@server:1080" /></label>
@@ -208,7 +243,7 @@
           <label class="f"><span>UDP</span><select id="landing-udp"><option value="1">开启</option><option value="0">关闭</option></select></label>
         </div>
         <label class="f"><span>服务器</span><input id="landing-server" data-manual-landing autocomplete="off" placeholder="landing.example.com" /></label>
-        <div class="row2" style="grid-template-columns:1fr 1fr">
+        <div class="row2 credentials-row">
           <label class="f"><span>用户名</span><input id="landing-user" data-manual-landing autocomplete="off" /></label>
           <label class="f"><span>密码</span><input id="landing-pass" data-manual-landing type="password" autocomplete="new-password" aria-describedby="landing-password-hint" placeholder="可选" /><small class="field-hint" id="landing-password-hint">未设置密码。</small></label>
         </div>
@@ -223,8 +258,11 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let state = null;
+const probeReports = new Map();
+let savedBindingSignatures = new Map();
 let busy = false;
 let editingSourceId = null;
+let modalSession = null;
 
 const errorMessages = {
   UPSTREAM_URL_INVALID: "请输入有效的 HTTP 或 HTTPS 订阅地址。",
@@ -245,6 +283,23 @@ const errorMessages = {
   SOURCE_NOT_FOUND: "这个订阅来源已不存在。",
   SOURCE_NOT_SELECTED: "请先选择要配置的订阅来源。",
   SOURCE_CHANGED: "订阅来源已切换，未保存配置。请确认当前来源后重新配置。",
+  CONTROLLER_INVALID: "请输入带端口的本机控制地址，并检查访问密钥。",
+  CONTROLLER_UNAVAILABLE: "未连接到客户端。请打开客户端外部控制，并检查连接设置。",
+  CONTROLLER_AUTH_FAILED: "客户端拒绝了访问密钥，请检查连接设置。",
+  CONTROLLER_RESPONSE_INVALID: "客户端返回的测试信息不完整，请稍后重试。",
+  RUNTIME_PROXY_MISSING: "客户端还没有这个落地节点，请先更新本地订阅。",
+  RUNTIME_MISMATCH: "客户端尚未加载当前落地绑定，请先更新本地订阅。",
+  PROBE_NOT_READY: "先启用并保存这个策略组，再更新客户端订阅后测试。",
+  PROBE_UNSAVED: "这行配置尚未保存。请先保存，并在客户端更新订阅后再测。",
+  PROBE_STALE: "测试期间配置已变化。请确认当前配置后重新测试。",
+  PROBE_BUSY: "已有两个测试正在运行，请稍后再试。",
+  PROBE_TIMEOUT: "拨测超时，请稍后重试或更换前置节点。",
+  PROBE_FAILED: "内核拨测未成功，请检查节点和落地的连接情况。",
+  LANDING_AUTH_FAILED: "落地认证失败，请检查用户名和密码。",
+  LANDING_CONNECT_FAILED: "本机无法通过落地连接出口查询服务。",
+  LANDING_TIMEOUT: "本机直连落地验证超时，整链结果请看上方。",
+  LANDING_PROBE_FAILED: "落地验证未完成，请稍后重试。",
+  IP_LOOKUP_FAILED: "出口查询没有返回有效 IP，请稍后重试。",
   SOURCE_NOT_CONFIGURED: "请先为这个来源启用至少一个策略组。",
   SOURCE_ACTIVE: "正在使用这个来源。请先启用其他来源，再删除它。",
   SOURCE_CACHE_MISSING: "本地订阅快照不存在，请重新添加这个来源。",
@@ -284,7 +339,7 @@ async function api(path, options = {}) {
 function setBusy(value, message) {
   busy = value;
   for (const button of document.querySelectorAll("button")) button.disabled = value;
-  if (!value) renderSubscription();
+  if (!value) { renderSubscription(); syncProbeButtons(); }
   if (message) $("dock-msg").textContent = message;
 }
 
@@ -407,18 +462,116 @@ function renderBindings() {
     const binding = bindingFor(group.name);
     const mode = binding.front_hop?.mode || "source";
     const fixed = binding.front_hop?.proxy || "";
+    const dirty = savedBindingSignatures.get(group.name) !== bindingSignature(binding);
     const selectedIsActive = state.selected_source_id === state.active_source_id && state.subscription.available;
-    const status = binding.enabled ? `<span class="st ${selectedIsActive ? "on" : "pending"}">${selectedIsActive ? "已启用" : "待启用"}</span>` : `<span class="st off">未管理</span>`;
+    const status = binding.enabled ? `<span class="st ${selectedIsActive && !dirty ? "on" : "pending"}">${dirty ? "待保存" : selectedIsActive ? "已启用" : "待启用"}</span>` : `<span class="st off">未管理</span>`;
     const key = encodeURIComponent(group.name);
+    const probe = probeReports.get(probeKey(group.name));
+    const testable = binding.enabled && selectedIsActive && !dirty;
     return `<tr>
       <td><label class="sw"><span class="sr-only">管理 ${esc(group.name)}</span><input data-enable="${key}" type="checkbox" ${binding.enabled ? "checked" : ""}><i></i></label></td>
       <td>${esc(group.name)}${status}<div class="sub" style="margin:0">${esc(group.type)} · ${group.proxies.length} 节点 · ${group.use.length} provider</div></td>
       <td><select aria-label="${esc(group.name)} 落地" data-landing="${key}">${landingOptions(binding.landing_id)}</select></td>
       <td><select aria-label="${esc(group.name)} 连接方式" data-mode="${key}"><option value="source" ${mode === "source" ? "selected" : ""}>沿用订阅策略</option><option value="automatic" ${mode === "automatic" ? "selected" : ""}>自动测速选择</option><option value="fixed" ${mode === "fixed" ? "selected" : ""}>固定节点/组</option><option value="direct" ${mode === "direct" ? "selected" : ""}>直连落地</option></select></td>
       <td><select aria-label="${esc(group.name)} 固定节点或策略组" data-fixed="${key}" ${mode === "fixed" ? "" : "disabled"}>${frontOptions(group.name, fixed, mode === "fixed")}</select></td>
-    </tr>`;
+      <td><button class="probe-button" data-probe="${key}" ${busy || probe?.running || !testable ? "disabled" : ""} aria-label="测试 ${esc(group.name)} 链路" aria-busy="${!!probe?.running}" title="${testable ? "测试客户端当前链路和落地" : "先保存并启用这个策略组"}">${probe?.running ? "测试中…" : "测试"}</button></td>
+    </tr>${probe ? `<tr class="probe-row"><td colspan="6"><div class="probe-report" role="status" aria-live="polite">${renderProbe(probe)}</div></td></tr>` : ""}`;
   }).join("");
-  $("binding-rows").innerHTML = rows || `<tr><td colspan="5" class="empty">先添加或选择订阅来源，策略组会显示在这里。</td></tr>`;
+  $("binding-rows").innerHTML = rows || `<tr><td colspan="6" class="empty">先添加或选择订阅来源，策略组会显示在这里。</td></tr>`;
+}
+
+function probeKey(group) {
+  return JSON.stringify([state.selected_source_id, group]);
+}
+
+function bindingSignature(binding) {
+  const front = { mode: "source", ...(binding.front_hop || {}) };
+  return JSON.stringify([binding.group, !!binding.enabled, binding.landing_id || "", Object.entries(front).sort(([a], [b]) => a.localeCompare(b))]);
+}
+
+function clearProbes() {
+  for (const probe of probeReports.values()) probe.controller.abort();
+  probeReports.clear();
+}
+
+function syncProbeButtons() {
+  for (const button of document.querySelectorAll("[data-probe]")) {
+    const group = decodeURIComponent(button.dataset.probe);
+    const binding = bindingFor(group);
+    button.disabled = busy || !!probeReports.get(probeKey(group))?.running || !binding?.enabled || savedBindingSignatures.get(group) !== bindingSignature(binding) || state.selected_source_id !== state.active_source_id || !state.subscription.available;
+  }
+}
+
+function probeLine(ok, label, content) {
+  return `<div class="probe-line"><span class="probe-dot ${ok ? "ok" : ""}" aria-hidden="true"></span><span class="probe-label">${esc(label)}</span><span>${content}</span></div>`;
+}
+
+function probeError(result) {
+  return esc(errorMessage(result?.code, result?.message));
+}
+
+function renderProbe(probe) {
+  if (probe.running) return `<div class="probe-line"><span class="probe-dot run" aria-hidden="true"></span><span>正在实测前置、整链并验证落地…</span></div>`;
+  if (probe.error) return probeLine(false, "测试", probeError(probe.error));
+  const report = probe.report;
+  const front = report.front;
+  const parts = [
+    probeLine(report.chain.ok, "整链", report.chain.ok ? `连通 · <span class="probe-ms">${esc(report.chain.ms)} ms</span>（整链延迟）` : probeError(report.chain)),
+    probeLine(report.selection.ok, "组内选中", report.selection.ok ? "客户端已选中落地节点" : `${probeError(report.selection)}${report.selection.name ? ` · 当前为 ${esc(report.selection.name)}` : ""}`),
+    probeLine(front.ok, "前置", front.skipped ? "直连落地，无前置节点" : `${front.name ? `${esc(front.name)}${front.is_group ? "（策略组）" : ""} · ` : ""}${front.ok ? `<span class="probe-ms">${esc(front.ms)} ms</span>` : probeError(front)}${front.selection_changed ? `<span class="probe-warning"> · 测试期间前置发生切换，建议重测</span>` : ""}`),
+    probeLine(report.landing.ok, "落地 ISP", report.landing.ok ? `出口 ${esc(report.landing.ip)} · ${report.landing.authentication === "accepted" ? "认证通过" : "代理连接成功"}（本机直连验证，耗时 ${(report.landing.elapsed_ms / 1000).toFixed(1)} s）` : probeError(report.landing)),
+    `<p class="probe-note">前置与整链来自客户端当前运行配置；落地项为本机直连验证，耗时不是链路延迟。${report.tested_at ? ` · ${esc(formatTime(report.tested_at))}` : ""}</p>`,
+  ];
+  return parts.join("");
+}
+
+function renderController() {
+  const connection = state.diagnostics_controller;
+  $("controller-url").value = connection.url;
+  $("controller-secret").value = "";
+  $("controller-secret").placeholder = connection.has_secret ? "已保存，留空保留" : "客户端未设置时可留空";
+  $("controller-secret-hint").textContent = connection.has_secret ? "密钥已保存在本机；留空保留，输入可替换。" : "填写客户端外部控制设置中的密钥。";
+  $("controller-clear-field").hidden = !connection.has_secret;
+  $("controller-clear-secret").checked = false;
+}
+
+async function saveController() {
+  const payload = { url: $("controller-url").value.trim(), secret: $("controller-secret").value, clear_secret: $("controller-clear-secret").checked };
+  setBusy(true, "正在保存客户端连接…");
+  try {
+    await api("/api/diagnostics/controller", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    await reloadState();
+    $("dock-msg").textContent = "客户端连接已保存，可以开始测试。";
+  } catch (error) { $("dock-msg").textContent = error.message; }
+  finally { setBusy(false); }
+}
+
+async function probeBinding(group) {
+  collectBindings();
+  const key = probeKey(group);
+  if (probeReports.get(key)?.running) return;
+  const binding = bindingFor(group);
+  if (!binding?.enabled || !binding.landing_id) return;
+  const probe = { running: true, controller: new AbortController() };
+  probeReports.set(key, probe);
+  const payload = { source_id: state.selected_source_id, generation: state.subscription.generation, group, binding };
+  renderBindings();
+  document.querySelector(".table-wrap").scrollLeft = 0;
+  const timer = setTimeout(() => probe.controller.abort(), 35000);
+  try {
+    const body = await api("/api/bindings/probe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: probe.controller.signal });
+    probe.report = body.probe;
+  } catch (error) {
+    probe.error = { code: error.name === "AbortError" ? "PROBE_TIMEOUT" : error.code, message: error.name === "AbortError" ? "测试超时，请稍后重试。" : error.message };
+    if (["SOURCE_CHANGED", "PROBE_STALE"].includes(error.code)) {
+      await reloadState();
+      $("dock-msg").textContent = errorMessage(error.code, error.message);
+    }
+  } finally {
+    clearTimeout(timer);
+    probe.running = false;
+    if (probeReports.get(key) === probe) renderBindings();
+  }
 }
 
 function collectBindings() {
@@ -426,7 +579,8 @@ function collectBindings() {
     const key = encodeURIComponent(group.name);
     const mode = document.querySelector(`[data-mode="${key}"]`)?.value || "source";
     const fixedValue = document.querySelector(`[data-fixed="${key}"]`)?.value || "";
-    const front_hop = { mode };
+    const previous = bindingFor(group.name)?.front_hop || { mode: "source" };
+    const front_hop = mode === (previous.mode || "source") ? { ...previous } : { mode };
     if (mode === "fixed" && fixedValue) front_hop.proxy = decodeURIComponent(fixedValue);
     return {
       group: group.name,
@@ -456,13 +610,38 @@ function renderCache() {
 }
 
 function renderAll() {
-  renderPills(); renderBanner(); renderSources(); renderLandings(); renderBindings(); renderSubscription(); renderCache();
+  renderPills(); renderBanner(); renderSources(); renderLandings(); renderBindings(); renderSubscription(); renderCache(); renderController();
 }
 
 async function reloadState() {
   const body = await api("/api/state");
+  clearProbes();
   state = body.state;
+  savedBindingSignatures = new Map(state.bindings.map(binding => [binding.group, bindingSignature(binding)]));
   renderAll();
+}
+
+function openModal(id) {
+  if (!modalSession) {
+    modalSession = { scrollY: window.scrollY, trigger: document.activeElement };
+    document.body.style.setProperty("--modal-scroll-offset", `${-modalSession.scrollY}px`);
+    document.documentElement.classList.add("modal-open");
+    document.body.classList.add("modal-open");
+  }
+  $(id).classList.add("on");
+  $(id).querySelector(".sheet").scrollTop = 0;
+}
+
+function closeModal(id) {
+  $(id).classList.remove("on");
+  if (!modalSession || document.querySelector(".modal.on")) return;
+  const { scrollY, trigger } = modalSession;
+  modalSession = null;
+  document.body.classList.remove("modal-open");
+  document.documentElement.classList.remove("modal-open");
+  document.body.style.removeProperty("--modal-scroll-offset");
+  window.scrollTo(0, scrollY);
+  if (trigger?.isConnected) trigger.focus({ preventScroll: true });
 }
 
 function openSourceModal(source = null) {
@@ -475,12 +654,12 @@ function openSourceModal(source = null) {
     ? "只修改本机显示名称，不会重新读取订阅。"
     : "完整地址仅用于本次导入，读取成功后不会保存。";
   $("btn-save-source").textContent = source ? "保存名称" : "保存并读取";
-  $("source-modal").classList.add("on");
-  $("source-name").focus();
+  openModal("source-modal");
+  $("source-name").focus({ preventScroll: true });
 }
 
 function closeSourceModal() {
-  $("source-modal").classList.remove("on");
+  closeModal("source-modal");
   editingSourceId = null;
 }
 
@@ -587,12 +766,12 @@ function openLandingModal(landing = null) {
   $("landing-udp").value = landing?.udp === false ? "0" : "1";
   updateLandingUrlMode();
   $("btn-delete-landing").style.display = landing ? "inline-block" : "none";
-  $("landing-modal").classList.add("on");
-  $("landing-name").focus();
+  openModal("landing-modal");
+  $("landing-name").focus({ preventScroll: true });
 }
 
 function closeLandingModal() {
-  $("landing-modal").classList.remove("on");
+  closeModal("landing-modal");
   $("landing-url").value = "";
   $("landing-pass").value = "";
   updateLandingUrlMode();
@@ -659,6 +838,7 @@ $("btn-add-source").onclick = () => openSourceModal();
 $("btn-close-source-modal").onclick = closeSourceModal;
 $("btn-save-source").onclick = saveSource;
 $("btn-save-bindings").onclick = saveBindings;
+$("btn-save-controller").onclick = saveController;
 $("btn-add-landing").onclick = () => openLandingModal();
 $("btn-close-modal").onclick = closeLandingModal;
 $("btn-save-landing").onclick = saveLanding;
@@ -678,7 +858,20 @@ $("source-list").onclick = (event) => {
   else if (deleteButton) deleteSource(deleteButton.dataset.deleteSource);
 };
 $("landing-list").onclick = (event) => { const button = event.target.closest("[data-edit-landing]"); if (button) openLandingModal(state.landings.find((item) => item.id === button.dataset.editLanding)); };
-$("binding-rows").onchange = (event) => { if (event.target.matches("[data-mode]")) { collectBindings(); renderBindings(); } };
+$("binding-rows").onchange = (event) => {
+  if (event.target.matches("[data-enable], [data-landing], [data-mode], [data-fixed]")) {
+    collectBindings();
+    const encoded = event.target.dataset.enable || event.target.dataset.landing || event.target.dataset.mode || event.target.dataset.fixed;
+    const key = probeKey(decodeURIComponent(encoded));
+    probeReports.get(key)?.controller.abort();
+    probeReports.delete(key);
+    renderBindings();
+  }
+};
+$("binding-rows").onclick = (event) => {
+  const button = event.target.closest("[data-probe]");
+  if (button) probeBinding(decodeURIComponent(button.dataset.probe));
+};
 $("btn-copy").onclick = async () => { try { await navigator.clipboard.writeText(state.subscription.url); $("dock-msg").textContent = "订阅地址已复制。"; } catch { $("dock-msg").textContent = "复制失败，请手动选择地址复制。"; } };
 
 reloadState().catch((error) => { $("banner").innerHTML = `<div class="banner bad">${esc(error.message)}</div>`; });

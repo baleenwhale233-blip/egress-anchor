@@ -77,7 +77,11 @@ def _handler_class(service: GatewayService, static_dir: Path):
             for name, value in (extra_headers or {}).items():
                 self.send_header(name, value)
             self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                # A page may cancel an in-flight diagnostic after changing inputs.
+                pass
 
         def _send_json(self, status: int, value: Mapping[str, Any]) -> None:
             self._send(status, "application/json; charset=utf-8", _json_body(value))
@@ -194,6 +198,9 @@ def _handler_class(service: GatewayService, static_dir: Path):
             def action():
                 path = urllib.parse.urlsplit(self.path).path
                 payload = self._read_json()
+                if path == "/api/bindings/probe":
+                    self._send_json(200, {"ok": True, "probe": service.probe_binding(payload)})
+                    return
                 source_prefix = "/api/sources/"
                 source_suffix = "/activate"
                 if path.startswith(source_prefix) and path.endswith(source_suffix):
@@ -224,6 +231,10 @@ def _handler_class(service: GatewayService, static_dir: Path):
             def action():
                 path = urllib.parse.urlsplit(self.path).path
                 payload = self._read_json()
+                if path == "/api/diagnostics/controller":
+                    controller = service.set_diagnostics_controller(payload)
+                    self._send_json(200, {"ok": True, "controller": controller})
+                    return
                 source_prefix = "/api/sources/"
                 source_suffix = "/select"
                 if path.startswith(source_prefix) and path.endswith(source_suffix):
