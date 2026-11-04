@@ -14,6 +14,7 @@ from guest_client_probe import native_state
 from guest_core_api import request
 from guest_overlay_common import atomic_write, managed_script
 from loopback_fixtures import fixture, ping, tunnel, udp_probe
+from guest_client_context import FLCLASH, flclash_context
 
 
 ROOT = Path("/home/egress-test/.local/share/io.github.clash-verge-rev.clash-verge-rev")
@@ -30,13 +31,15 @@ def inject(case):
     metadata = yaml.safe_load((ROOT / "profiles.yaml").read_text())
     selected = next(row for row in metadata["items"] if row.get("uid") == metadata["current"])
     paths = [ROOT / "profiles" / (selected["option"]["script"] + ".js")]
+    if case.startswith("global-"):
+        paths = [ROOT / "profiles/Script.js"]
     if case.startswith("native-"):
         paths.append(ROOT / "profiles/Script.js")
     user = "function main(config) { throw new Error('synthetic user failure'); }"
     if case == "user-syntax":
         user = "function main("
-    text = managed_script(user, receipt["port"])
-    if case == "native-syntax":
+    text = managed_script(user, receipt["port"], stage="global" if case.startswith("global-") else "profile")
+    if case in ("native-syntax", "global-syntax"):
         text = "function main("
     elif case == "native-limit":
         text = "function main(config) { while (true) {} return config; }"
@@ -57,21 +60,22 @@ def clear():
     print(json.dumps({"synthetic_failure_cleared": True, "native_reload_required": True}))
 
 
-def verify(denied, label):
-    runtime, selected = native_state("verge")
+def verify(denied, label, client="verge"):
+    runtime, selected = native_state(client)
+    fixtures = FIXTURES if client == "verge" else flclash_context(client)["fixtures"]
     deadline = time.monotonic() + 15
     while True:
-        proxies = request(runtime, "verge", "GET", "/proxies")["proxies"]
-        if not denied or ("EA-P0-Deny" in proxies and "EA-P0-Landing" not in proxies):
+        proxies = request(runtime, client, "GET", "/proxies")["proxies"]
+        rules = request(runtime, client, "GET", "/rules")["rules"]
+        service = next((row for row in rules if row.get("payload") == "managed.p0.invalid"), {})
+        if not denied or (service.get("proxy") in ("EA-P0-Deny", "REJECT") and "EA-P0-Landing" not in proxies):
             break
         if time.monotonic() > deadline:
             raise AssertionError("native regeneration did not reach the expected denied state")
         time.sleep(0.2)
-    ports = json.loads((FIXTURES / "ports.json").read_text())
+    ports = json.loads((fixtures / "ports.json").read_text())
     if denied:
-        rules = request(runtime, "verge", "GET", "/rules")["rules"]
-        service = next(row for row in rules if row.get("payload") == "managed.p0.invalid")
-        assert service["proxy"] == "EA-P0-Deny"
+        assert service["proxy"] in ("EA-P0-Deny", "REJECT")
         try:
             with tunnel(runtime["mixed-port"], "managed.p0.invalid", ports["origin"]) as connection:
                 ping(connection)
@@ -88,7 +92,7 @@ def verify(denied, label):
               "protected_tcp_denied": denied, "protected_udp_denied": True,
               "unrelated_tcp_works": True, "unrelated_udp_positive_control": True,
               "managed_objects": sorted(name for name in proxies if name.startswith("EA-P0-"))}
-    (FIXTURES / "reports" / f"{label}.json").write_text(json.dumps(report, indent=2) + "\n")
+    (fixtures / "reports" / f"{label}.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report))
 
 
@@ -98,9 +102,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["inject", "clear", "verify-denied", "verify-udp"])
     parser.add_argument("value", nargs="?")
+    parser.add_argument("--client", choices=["verge", *FLCLASH], default="verge")
     args = parser.parse_args()
     if args.action == "inject":
-        if args.value not in ("user-throw", "user-syntax", "native-syntax", "native-limit"):
+        if args.client != "verge":
+            raise ValueError("script fault injection is limited to the Verge fixture")
+        if args.value not in ("user-throw", "user-syntax", "native-syntax", "native-limit", "global-user-throw", "global-syntax"):
             raise ValueError("use a fixed synthetic failure case")
         inject(args.value)
     elif args.action == "clear":
@@ -108,7 +115,7 @@ def main():
     else:
         if not args.value or not args.value.replace("-", "").isalnum():
             raise ValueError("use an alphanumeric report label")
-        verify(args.action == "verify-denied", args.value)
+        verify(args.action == "verify-denied", args.value, args.client)
 
 
 if __name__ == "__main__":

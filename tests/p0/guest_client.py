@@ -5,13 +5,16 @@ import json
 import os
 from pathlib import Path
 import platform
+import pwd
 import signal
 import socket
 import subprocess
 
+from guest_client_context import FLCLASH, flclash_context
+
 
 DIRECTORY = Path("/home/egress-test/p0-desktop")
-CLIENTS = {"flclash": "/usr/bin/FlClash", "verge": "/usr/bin/clash-verge"}
+CLIENTS = {"verge": "/usr/bin/clash-verge", **{key: value["binary"] for key, value in FLCLASH.items()}}
 
 
 def main():
@@ -21,7 +24,12 @@ def main():
     parser.add_argument("action", choices=["start", "stop"])
     parser.add_argument("client", choices=CLIENTS)
     args = parser.parse_args()
-    pid_file = DIRECTORY / f"{args.client}.pid"
+    directory = DIRECTORY
+    if args.client == "flclash-0894":
+        if pwd.getpwuid(os.getuid()).pw_name != "egress-0894":
+            raise ValueError("run this variant as the isolated egress-0894 user")
+        directory = flclash_context(args.client)["desktop"]
+    pid_file = directory / f"{args.client}.pid"
     binary = Path(CLIENTS[args.client]).resolve()
     if args.action == "stop":
         pid = int(pid_file.read_text())
@@ -35,8 +43,8 @@ def main():
     if pid_file.exists() and Path(f"/proc/{pid_file.read_text().strip()}/exe").exists():
         raise SystemExit("The test client is already running")
     env = os.environ.copy()
-    env.update(json.loads((DIRECTORY / "session.json").read_text()))
-    with (DIRECTORY / f"{args.client}.log").open("a") as log:
+    env.update(json.loads((directory / "session.json").read_text()))
+    with (directory / f"{args.client}.log").open("a") as log:
         process = subprocess.Popen([str(binary)], env=env, stdin=subprocess.DEVNULL,
                                    stdout=log, stderr=log, start_new_session=True)
     pid_file.write_text(str(process.pid))

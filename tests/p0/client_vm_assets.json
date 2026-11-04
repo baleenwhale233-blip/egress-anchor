@@ -10,6 +10,18 @@
     "url": "https://github.com/chen08209/FlClash/releases/download/v0.9.2/FlClash-0.9.2-linux-arm64.deb",
     "sha256": "15702119218d288943978611db674eeb7495911d07ba5e1444744361353df3e6"
   },
+  "flclash_0894": {
+    "file": "FlClash-0.8.94-linux-arm64.deb",
+    "url": "https://github.com/chen08209/FlClash/releases/download/v0.8.94/FlClash-0.8.94-linux-arm64.deb",
+    "sha256": "d48739dfb7f2f78498d93491a2f979e3e3584922d8abeff65777a6c61e0821fc",
+    "source_commit": "7e7f1f89f363c31bbb7aa5af3f34a8b5c32a7a19",
+    "core_submodule_commit": "80362fc1895dcf60b79b562896653046e0687413"
+  },
+  "legacy_keybinder": {
+    "file": "libkeybinder-3.0-0_0.3.2-1.1build2_arm64.deb",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/universe/k/keybinder-3.0/libkeybinder-3.0-0_0.3.2-1.1build2_arm64.deb",
+    "sha256": "a324bf11b4bce555ff134565992a44ab94ed343ab3b657a2c6ec75244c059361"
+  },
   "clash_verge_rev": {
     "file": "Clash.Verge_2.5.10_arm64.deb",
     "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.10/Clash.Verge_2.5.10_arm64.deb",

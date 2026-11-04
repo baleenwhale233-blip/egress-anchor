@@ -12,7 +12,7 @@ def request(runtime, client, method, path, body=None):
 
     class Connection(http.client.HTTPConnection):
         def connect(self):
-            if client == "flclash" and runtime["external-controller"] == "127.0.0.1:9090":
+            if client in ("flclash", "flclash-0894") and runtime["external-controller"] == "127.0.0.1:9090":
                 self.sock = socket.create_connection(("127.0.0.1", 9090), timeout=4)
                 return
             expected = "/home/egress-test/.local/share/io.github.clash-verge-rev.clash-verge-rev/verge-mihomo.sock"

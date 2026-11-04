@@ -55,3 +55,4 @@ PYTHONDONTWRITEBYTECODE=1 python3 tests/p0/kernel_checks.py --binary dev-data/p0
 阶段结论和未完成项目见 [F009](../../功能列表/F009-P0验证.md)；
 原生客户端的实际结果与限制见 [F011](../../功能列表/F011-隔离客户端验证.md)。
 Verge 热应用/恢复、优先级和脚本失败保护的后续结果见 [F012](../../功能列表/F012-P0覆写优化.md)。
+新订阅先拒绝、两版 FlClash 标准模式及手动启动恢复，见最新 [F013](../../功能列表/F013-新订阅与FlClash接入.md)。

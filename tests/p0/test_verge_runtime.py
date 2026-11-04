@@ -23,7 +23,7 @@ class VergeRuntimeTests(unittest.TestCase):
 
     def invoke(self, api, checked=None):
         with patch("guest_verge_runtime.transform", return_value=self.desired), \
-             patch("guest_verge_runtime.subprocess.run", side_effect=checked or (lambda *a, **k: SimpleNamespace(returncode=0))), \
+             patch("guest_native_validation.subprocess.run", side_effect=checked or (lambda *a, **k: SimpleNamespace(returncode=0))), \
              patch("guest_verge_runtime.request", side_effect=api), \
              patch("guest_verge_runtime.verify_routes", return_value={"verified_service_route": "managed"}):
             return update(self.root, "apply", 1080)

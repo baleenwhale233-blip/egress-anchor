@@ -105,7 +105,7 @@ def guest(arguments):
 
 def copy_assets():
     specs = verify_assets()
-    paths = [str(DIRECTORY / specs[name]["file"]) for name in ("flclash", "clash_verge_rev")]
+    paths = [str(DIRECTORY / specs[name]["file"]) for name in ("flclash", "flclash_0894", "clash_verge_rev", "legacy_keybinder")]
     return copy_files(paths)
 
 

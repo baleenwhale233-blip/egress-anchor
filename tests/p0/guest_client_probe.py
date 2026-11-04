@@ -7,13 +7,14 @@ from pathlib import Path
 import platform
 import re
 import socket
-import sqlite3
 import urllib.request
 
 import yaml
 
 from loopback_fixtures import ping, tunnel
 from guest_core_api import request
+from guest_client_context import FLCLASH, flclash_context
+from guest_flclash_store import connection as flclash_database, profiles as flclash_profiles
 
 
 FIXTURES = Path("/home/egress-test/p0-fixtures")
@@ -37,21 +38,22 @@ def native_state(client):
         metadata = yaml.safe_load((root / "profiles.yaml").read_text())
         selected = next(row for row in metadata["items"] if row.get("uid") == metadata["current"])
         return runtime, {"id": selected["uid"], "name": selected.get("name")}
-    root = base / "com.follow.clash"
+    root = flclash_context(client)["root"]
     runtime = yaml.safe_load((root / "config.yaml").read_text())
     prefs = json.loads(json.loads((root / "shared_preferences.json").read_text())["flutter.config"])
     if prefs.get("networkProps", {}).get("systemProxy"):
         raise AssertionError("keep the guest's system proxy disabled")
-    with sqlite3.connect(f"file:{root}/database.sqlite?mode=ro", uri=True) as connection:
-        row = connection.execute("SELECT id,label,extend_type,script_id FROM profiles WHERE id=?",
-                                 (prefs["currentProfileId"],)).fetchone()
-    return runtime, dict(zip(("id", "name", "extend_type", "script_id"), row))
+    with flclash_database(root, True) as database:
+        row = next(row for row in flclash_profiles(database) if row["id"] == prefs["currentProfileId"])
+        label = database.execute("SELECT label FROM profiles WHERE id=?", (row["id"],)).fetchone()[0]
+    return runtime, {"id": row["id"], "name": label, "extend_type": row["extend_type"], "script_id": row["script_id"]}
 
 
 def observe(managed, expected_source=None, expected_route=None, client="verge", user_rule=False):
     expected_route = expected_route or ("managed" if managed else "source")
     runtime, selected = native_state(client)
-    ports = json.loads((FIXTURES / "ports.json").read_text())
+    fixtures = FIXTURES if client == "verge" else flclash_context(client)["fixtures"]
+    ports = json.loads((fixtures / "ports.json").read_text())
 
     def api(path):
         return request(runtime, client, "GET", path)
@@ -102,7 +104,7 @@ def observe(managed, expected_source=None, expected_route=None, client="verge", 
     return {
         "platform": "Ubuntu 24.04 ARM64 VM, offline, TUN disabled",
         "checked_at": datetime.now(timezone.utc).isoformat(),
-        "client": "Clash Verge Rev 2.5.10" if client == "verge" else "FlClash 0.9.2",
+        "client": "Clash Verge Rev 2.5.10" if client == "verge" else flclash_context(client)["label"],
         "core": api("/version"), "current_profile": selected, "user_rule_present": has_user_rule,
         "source_nodes": source_nodes, "fixture_proxy_events": traffic,
         "managed_objects": own_names, "actual_chain": chains, "observed_route": route,
@@ -117,7 +119,7 @@ def main():
         raise SystemExit("This fixture may run only inside the disposable P0 guest")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("label")
-    parser.add_argument("--client", choices=["verge", "flclash"], default="verge")
+    parser.add_argument("--client", choices=["verge", *FLCLASH], default="verge")
     parser.add_argument("--managed", action="store_true")
     parser.add_argument("--source", help="expected fixture suffix, e.g. a-v2")
     parser.add_argument("--route", choices=["managed", "source", "direct"], help="negative control may override the installed overlay")
@@ -125,7 +127,7 @@ def main():
     args = parser.parse_args()
     if not re.fullmatch(r"[a-z0-9_-]+", args.label):
         raise ValueError("use a fixture report label")
-    directory = FIXTURES / "reports"
+    directory = (FIXTURES if args.client == "verge" else flclash_context(args.client)["fixtures"]) / "reports"
     directory.mkdir(exist_ok=True)
     try:
         report = observe(args.managed, args.source, args.route, args.client, args.user_rule)

@@ -6,86 +6,69 @@ from pathlib import Path
 import platform
 import secrets
 import socket
-import sqlite3
-import time
 
-from guest_overlay_common import atomic_write, digest, managed_script, run_client, stop_client
+import yaml
+
+from guest_overlay_common import atomic_write, run_client, stop_client
+from guest_flclash_guards import plan, preflight, write_plan, check_installed
+from guest_flclash_runtime import apply, running, startup_status, ensure_ready
+from guest_flclash_store import connection as native_database, profiles, make_guard, write_guard
+from guest_client_context import FLCLASH, flclash_context
 
 
 ROOT = Path("/home/egress-test/.local/share/com.follow.clash")
 FIXTURES = Path("/home/egress-test/p0-fixtures")
 RECEIPT = FIXTURES / "flclash-overlay-receipt.json"
-SCRIPT_ID = -9002
-SCRIPT = ROOT / f"scripts/{SCRIPT_ID}.js"
 PREFS = ROOT / "shared_preferences.json"
-
-
-def connection(readonly=False):
-    mode = "ro" if readonly else "rw"
-    return sqlite3.connect(f"file:{ROOT}/database.sqlite?mode={mode}", uri=True)
+CLIENT = "flclash"
 
 
 def current_profile():
     prefs = json.loads(json.loads(PREFS.read_text())["flutter.config"])
-    with connection(True) as database:
-        return database.execute("SELECT id,extend_type,script_id FROM profiles WHERE id=?",
-                                (prefs["currentProfileId"],)).fetchone()
+    with native_database(ROOT, True) as database:
+        row = next(row for row in profiles(database) if row["id"] == prefs["currentProfileId"])
+    return row["id"], row["extend_type"], row["script_id"]
 
 
 def seed_user():
     profile = current_profile()
     if profile[1:] != ("standard", None):
         raise ValueError("seed only a fresh standard fixture profile")
-    stop_client("flclash")
-    with connection() as database:
-        database.execute("INSERT INTO rules(id,profile_id,rule_action,content,rule_target) VALUES(?,?,?,?,?)",
-                         (-9001, profile[0], "DOMAIN", "user-added.p0.invalid", "DIRECT"))
+    stop_client(CLIENT)
+    with native_database(ROOT) as database:
+        row = make_guard(database, -9001, profile[0])
+        row.update({"content": "user-added.p0.invalid", "rule_target": "DIRECT"})
+        if "order" in row:
+            row["order"] = "a0"
+        write_guard(database, row)
     raw = json.loads(PREFS.read_text())
     prefs = json.loads(raw["flutter.config"])
-    prefs["networkProps"]["systemProxy"] = False
-    prefs["patchClashConfig"]["external-controller"] = "127.0.0.1:9090"
+    prefs.setdefault("networkProps", {})["systemProxy"] = False
+    prefs.setdefault("patchClashConfig", {})["external-controller"] = "127.0.0.1:9090"
     prefs["patchClashConfig"]["secret"] = secrets.token_hex(24)
     raw["flutter.config"] = json.dumps(prefs)
     atomic_write(PREFS, json.dumps(raw))
-    run_client("start", "flclash")
+    run_client("start", CLIENT)
     print(json.dumps({"seeded_standard_user_rule": True, "guest_loopback_test_api": True}))
 
 
-def install(preserve):
-    if RECEIPT.exists() and json.loads(RECEIPT.read_text())["status"] == "installed":
+def install():
+    if RECEIPT.exists() and json.loads(RECEIPT.read_text())["status"] != "restored":
         raise ValueError("restore the fixture overlay before installing again")
-    profile = current_profile()
-    if profile[1:] != ("standard", None):
-        raise ValueError("this P0 prototype supports only a synthetic standard profile")
-    with connection(True) as database:
-        rules = database.execute("SELECT rule_action,content,rule_target FROM rules WHERE profile_id=? OR profile_id IS NULL",
-                                 (profile[0],)).fetchall()
-        if database.execute("SELECT id FROM scripts WHERE id=?", (SCRIPT_ID,)).fetchone() or SCRIPT.exists():
-            raise ValueError("fixture script ID already exists")
-    if rules != [("DOMAIN", "user-added.p0.invalid", "DIRECT")]:
-        raise ValueError("this experiment translates only the known synthetic standard rule")
-    user = 'function main(config) { return config; }'
-    if preserve:
-        user = 'function main(config) { config.rules = ["DOMAIN,user-added.p0.invalid,DIRECT"].concat(config.rules || []); return config; }'
     port = json.loads((FIXTURES / "ports.json").read_text())["landing"]
-    script = managed_script(user, port)
-    receipt = {"client": "flclash-p0", "profile_id": profile[0], "before": list(profile[1:]),
-               "script_sha256": digest(script), "translated_fixture_rule": preserve, "status": "prepared"}
+    changes = plan(ROOT, port)
+    previous = ensure_ready(ROOT, CLIENT, changes)
+    receipt = {"client": "flclash-p0", "version": 2, "changes": changes,
+               "port": port, "previous_running": previous, "status": "prepared"}
     atomic_write(RECEIPT, json.dumps(receipt))
-    stop_client("flclash")
-    SCRIPT.parent.mkdir(exist_ok=True)
-    atomic_write(SCRIPT, script)
-    with connection() as database:
-        database.execute("INSERT INTO scripts(id,label,last_update_time) VALUES(?,?,?)",
-                         (SCRIPT_ID, "EA-P0-owned", int(time.time())))
-        updated = database.execute("UPDATE profiles SET extend_type='script',script_id=? WHERE id=? AND extend_type='standard' AND script_id IS NULL",
-                                   (SCRIPT_ID, profile[0]))
-        if updated.rowcount != 1:
-            raise ValueError("fixture profile changed; transaction rolled back")
+    stop_client(CLIENT)
+    write_plan(ROOT, changes)
     receipt["status"] = "installed"
     atomic_write(RECEIPT, json.dumps(receipt))
-    run_client("start", "flclash")
-    print(json.dumps({"installed_profile_script": True, "translated_fixture_rule": preserve}))
+    run_client("start", CLIENT)
+    print(json.dumps({"installed_native_guards": len(changes["guards"]),
+                      "wrapped_existing_scripts": len(changes["scripts"]),
+                      "profile_modes_preserved": True, **startup_status(ROOT, previous, CLIENT)}))
 
 
 def restore():
@@ -95,37 +78,47 @@ def restore():
     if receipt["status"] == "restored":
         print(json.dumps({"already_restored": True}))
         return
-    with connection(True) as database:
-        current = database.execute("SELECT extend_type,script_id FROM profiles WHERE id=?",
-                                   (receipt["profile_id"],)).fetchone()
-    if current != ("script", SCRIPT_ID) or digest(SCRIPT.read_text()) != receipt["script_sha256"]:
-        raise ValueError("restore conflict: user edits preserved; client not stopped")
-    stop_client("flclash")
-    if digest(SCRIPT.read_text()) != receipt["script_sha256"]:
-        raise ValueError("script changed during stop; nothing was overwritten")
-    with connection() as database:
-        updated = database.execute("UPDATE profiles SET extend_type=?,script_id=? WHERE id=? AND extend_type='script' AND script_id=?",
-                                   (*receipt["before"], receipt["profile_id"], SCRIPT_ID))
-        if updated.rowcount != 1:
-            raise ValueError("profile changed during stop; transaction rolled back")
-        database.execute("DELETE FROM scripts WHERE id=? AND label=?", (SCRIPT_ID, "EA-P0-owned"))
-    SCRIPT.unlink()
+    if receipt.get("version") != 2:
+        raise ValueError("restore the legacy receipt with its matching prototype")
+    preflight(ROOT, receipt["changes"], restoring=True)
+    previous = running(yaml.safe_load((ROOT / "config.yaml").read_text()) or {})
+    stop_client(CLIENT)
+    write_plan(ROOT, receipt["changes"], restoring=True)
+    receipt["status"] = "files_restored"
+    atomic_write(RECEIPT, json.dumps(receipt))
+    run_client("start", CLIENT)
+    status = startup_status(ROOT, previous, CLIENT)
     receipt["status"] = "restored"
     atomic_write(RECEIPT, json.dumps(receipt))
-    run_client("start", "flclash")
-    print(json.dumps({"restored_only_owned_profile_fields": True, "native_client_restarted": True}))
+    print(json.dumps({"configuration_restored": True, "native_client_restarted": True, **status}))
+
+
+def apply_current():
+    receipt = json.loads(RECEIPT.read_text())
+    if receipt.get("version") != 2 or receipt["status"] != "installed":
+        raise ValueError("native guards must be installed first")
+    check_installed(ROOT, receipt["changes"])
+    print(json.dumps(apply(ROOT, receipt["port"], CLIENT)))
 
 
 def main():
+    global CLIENT, ROOT, FIXTURES, RECEIPT, PREFS
     if platform.system() != "Linux" or socket.gethostname() != "egress-p0-client-vm":
         raise SystemExit("This fixture may run only inside the disposable P0 guest")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["seed-user", "install", "install-naive", "restore"])
-    action = parser.parse_args().action
+    parser.add_argument("action", choices=["seed-user", "install", "apply", "restore"])
+    parser.add_argument("--client", choices=list(FLCLASH), default="flclash")
+    args = parser.parse_args()
+    action, CLIENT = args.action, args.client
+    context = flclash_context(CLIENT)
+    ROOT, FIXTURES = context["root"], context["fixtures"]
+    RECEIPT, PREFS = FIXTURES / "flclash-overlay-receipt.json", ROOT / "shared_preferences.json"
     if action == "seed-user":
         seed_user()
-    elif action.startswith("install"):
-        install(action == "install")
+    elif action == "install":
+        install()
+    elif action == "apply":
+        apply_current()
     else:
         restore()
 

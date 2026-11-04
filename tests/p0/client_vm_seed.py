@@ -65,7 +65,7 @@ def prepare():
         "package_update": True, "package_upgrade": False,
         "packages": ["xvfb", "openbox", "x11vnc", "novnc", "websockify", "dbus-x11", "xdg-utils",
                      "python3-yaml", "sqlite3", "libgtk-3-0t64", "libwebkit2gtk-4.1-0",
-                     "libayatana-appindicator3-1", "libfuse2t64", "fonts-noto-cjk"],
+                     "libayatana-appindicator3-1", "libfuse2t64", "libkeybinder-3.0-0", "fonts-noto-cjk"],
         "runcmd": [["touch", "/home/egress-test/p0-bootstrap-ready"],
                    ["chown", "egress-test:egress-test", "/home/egress-test/p0-bootstrap-ready"]],
     }

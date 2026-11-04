@@ -33,7 +33,7 @@ def guarded_merge(before):
     return yaml.safe_dump(config, sort_keys=False) if changed else before
 
 
-def plan(root, landing_port):
+def plan(root, landing_port, originals=None):
     metadata = yaml.safe_load((root / "profiles.yaml").read_text())
     changes = {}
     owners = {}
@@ -47,7 +47,7 @@ def plan(root, landing_port):
         if identity in owners and owners[identity] != relative:
             raise ValueError("extension paths alias the same file")
         owners[identity] = relative
-        before = path.read_text()
+        before = (originals or {}).get(relative, path.read_text())
         if "EA-P0-" in before:
             raise ValueError("fixture namespace already exists in an extension")
         after = transform(before)
@@ -55,8 +55,8 @@ def plan(root, landing_port):
             changes[relative] = {"path": relative, "before": before, "after": after,
                                  "after_sha256": digest(after)}
 
-    wrap = lambda text: managed_script(text, landing_port)
-    add("profiles/Script.js", wrap)
+    wrap = lambda text: managed_script(text, landing_port, stage="profile")
+    add("profiles/Script.js", lambda text: managed_script(text, landing_port, stage="global"))
     add("profiles/Merge.yaml", guarded_merge)
     for row in metadata["items"]:
         if row.get("type") not in ("remote", "local"):

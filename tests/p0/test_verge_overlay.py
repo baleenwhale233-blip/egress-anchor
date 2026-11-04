@@ -16,6 +16,7 @@ class VergeRecoveryTests(unittest.TestCase):
             (root / "profiles").mkdir()
             script = root / "profiles/Script.js"
             script.write_text("original\n")
+            (root / "clash-verge.yaml").write_text("x-ea-p0-state: active\nproxies: [{name: EA-P0-Landing}]\n")
             (root / "ports.json").write_text('{"landing":1080}')
             receipt = root / "receipt.json"
             changes = [{"path": "profiles/Script.js", "before": "original\n", "after": "owned\n"}]
@@ -43,6 +44,26 @@ class VergeRecoveryTests(unittest.TestCase):
                 overlay.restore()
             update.assert_not_called()
             self.assertEqual({"already_restored": True}, json.loads(output.getvalue()))
+
+    def test_partial_script_output_is_rebuilt_instead_of_hot_restored(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "profiles").mkdir()
+            script = root / "profiles/Script.js"
+            script.write_text("owned\n")
+            (root / "clash-verge.yaml").write_text("x-ea-p0-state: script-error\nproxies: []\n")
+            receipt = root / "receipt.json"
+            receipt.write_text(json.dumps({"client": "verge-p0", "version": 2, "status": "installed", "port": 1080,
+                                           "files": [{"path": "profiles/Script.js", "before": "original\n", "after": "owned\n"}]}))
+            with patch.object(overlay, "ROOT", root), patch.object(overlay, "RECEIPT", receipt), \
+                 patch.object(overlay, "update") as update, patch.object(overlay, "stop_client") as stop, \
+                 patch.object(overlay, "run_client") as start, redirect_stdout(io.StringIO()) as output:
+                overlay.restore()
+            update.assert_not_called()
+            stop.assert_called_once_with("verge")
+            start.assert_called_once_with("start", "verge")
+            self.assertEqual("original\n", script.read_text())
+            self.assertTrue(json.loads(output.getvalue())["runtime_verification_required"])
 
 
 if __name__ == "__main__":
