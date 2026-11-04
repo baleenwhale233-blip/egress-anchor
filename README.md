@@ -30,6 +30,13 @@ compile_subscription(source_yaml, policy) -> CompileResult
 
 Packaging and disposable client smoke tests remain future work.
 
+## Project navigation
+
+Start with the [feature index](功能列表/索引.md) and [current work](任务进展/当前.md),
+then follow only the links relevant to the task. The
+[maintenance boundaries](功能列表/F008-维护与分层.md) describe incremental module splitting.
+Product and development plans describe future work; the runtime instructions below describe current V0.1 behavior.
+
 ## Why the topology fails closed
 
 For a managed group named `AI`, the compiler transforms this:
