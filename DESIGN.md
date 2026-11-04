@@ -5,6 +5,10 @@ Status: compiler and loopback gateway implemented; multi-source snapshot model l
 Date: 2026-08-19
 Product: EgressAnchor / 出口锚点
 
+Current verification note (2026-11-04): the singleton topology constrains the
+tested TCP paths. Unsupported UDP can continue to a later rule; explicit
+service UDP constraints are still pending. See the [P0 findings](功能列表/F009-P0验证.md#3-udp-缺口与后续要求).
+
 ## 1. Product contract
 
 EgressAnchor is a local subscription gateway for Mihomo-compatible clients. It

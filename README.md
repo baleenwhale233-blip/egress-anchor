@@ -4,12 +4,17 @@ A local subscription gateway for stable, policy-bound egress.
 
 EgressAnchor compiles a complete Mihomo configuration so selected policy groups
 must use a configured HTTP or SOCKS5 landing proxy. Unmanaged routing remains
-semantically unchanged. If a required front hop or landing fails, the managed
-path fails instead of falling back to an ordinary upstream exit.
+semantically unchanged. For TCP, if a required front hop or landing fails, the
+managed path fails instead of falling back to an ordinary upstream exit.
 
 EgressAnchor does not promise account safety, bypass platform enforcement, or
 grant permission to ignore provider terms. AI tools are an important use case,
 not the product boundary.
+
+Current limitation: the singleton landing topology alone does not constrain UDP
+when the chosen outbound cannot carry it. In pinned Mihomo v1.19.33 tests, UDP
+continued to a later `DIRECT` rule. Explicit per-service UDP constraints remain
+to be implemented; see the [P0 findings](功能列表/F009-P0验证.md#3-udp-缺口与后续要求).
 
 ## Status
 
@@ -211,6 +216,10 @@ subscriptions and historical Clash dialects are out of scope for V0.1.
 Before claiming client compatibility, generated fixtures still need validation
 with a pinned Mihomo binary and disposable import smoke tests in at least FlClash
 and Clash Verge Rev. No real local client profile may be used for those tests.
+
+The first [pinned-core P0 checks](tests/p0/README.md) now exercise loopback traffic,
+reloads and selective connection closure. They do not complete desktop-client
+acceptance and intentionally report the UDP limitation above as a failing check.
 
 Relevant Mihomo documentation:
 

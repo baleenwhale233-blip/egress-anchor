@@ -144,7 +144,7 @@ flclash-gateway 已有以下能力，新版需要继承其顺手的操作：
 首批内置服务：
 
 - Claude，覆盖 Claude 网页和 Claude Code 等已约定入口。
-- ChatGPT。
+- ChatGPT，包含 Codex 已约定的模型与认证入口，默认共用该服务的出口和严格设置。
 - DeepSeek，模板默认出口为直连。
 
 DeepSeek 的默认直连是选用该模板时的预选项，启用服务配置后生效。
@@ -220,12 +220,21 @@ DeepSeek 直连，则其他 AI 仍走原订阅 AI 组；Telegram、X 等沿用�
 
 ## 6. 严格模式
 
+- Claude 与 ChatGPT（包含 Codex）各有独立严格开关，默认关闭；开启一个不修改另一个的
+  出口或严格状态。GPT 参考完整教程的 11 项要求，每项明确自动配置、检测验证或使用指引的
+  归属；具体映射与验收见 [F010](功能列表/F010-GPT严格模式.md#3-教程与官方资料如何使用)。
 - 由用户主动开启，提前说明影响范围。
 - 涉及全局设置时说明对其他服务的影响，保留原配置并支持恢复。
 - 应用严格设置确实需要重启客户端时，先弹窗说明影响；用户确认后，工具自动完成
   必要的客户端重启和生效检查。
 - 其他配置改动使用热加载，保持旧版快速生效的操作体验。
 - 默认模式尽量不影响其他服务。
+- 严格模式显式拒绝已被目标客户端接管且命中该服务规则的应用 UDP，不允许继续匹配
+  后续机场或直连规则；即使 ISP 支持 UDP，也不因此在严格模式中自动放行。
+- 该限制按受保护服务应用，不默认禁用整机 UDP；其他服务保持原分流。前置节点底层的
+  传输协议与应用 UDP 分别处理，不能因阻断服务 UDP 而一并禁用所需的前置传输。
+- 代理标记为不支持 UDP 不等于已经拒绝流量，必须通过实际拒绝规则和出站测试验证。
+  未命中服务规则的通用 WebRTC/STUN 探测仍按原有范围显示未验证。
 - 指定落地不可用时，已接管且命中该服务规则的连接按原出口约束失败，面板显示故障
   暂停并说明错误，保持指定落地。
 - 同一指定落地恢复后，客户端可按原策略重新建立连接；后台复检通过后更新恢复状态。
@@ -374,6 +383,7 @@ app.py、engine.py 与 static/index.html，未读取运行数据或调用 API。
 ## 12. 参考与工作边界
 
 - Claude 教程：<https://ip.net.coffee/claude/claudecode.html>
+- GPT/Codex 完整教程：<https://ip.net.coffee/gpt/codex.html>；11 项映射与采纳方式见 F010。
 - Mihomo 路由规则：<https://wiki.metacubex.one/config/rules/>
 - Mihomo DNS：<https://wiki.metacubex.one/config/dns/>
 - Mihomo TUN：<https://wiki.metacubex.one/en/config/inbound/tun/>

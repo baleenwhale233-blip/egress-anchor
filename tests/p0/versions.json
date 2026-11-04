@@ -1,0 +1,20 @@
+{
+  "checked_on": "2026-11-04",
+  "platform": "darwin-arm64",
+  "mihomo": {
+    "version": "v1.19.33",
+    "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-darwin-arm64-v1.19.33.gz",
+    "archive_sha256": "060b64b0f2c9a310831db0fe4adb2878de67bfa606c311813c1f13966aa504b6",
+    "binary_sha256": "f3e8ae41397c08cbf900ce1f7c8a168285d29954e9bca5d84d69a2b2561adfe9"
+  },
+  "flclash": {
+    "version": "v0.9.2",
+    "commit": "7fd417fb9a9a277c6a9339a8ac87f907df7c25f7",
+    "release": "https://github.com/chen08209/FlClash/releases/tag/v0.9.2"
+  },
+  "clash_verge_rev": {
+    "version": "v2.5.10",
+    "commit": "c83f7ad529c7c9cb3d2d54a0955ef8c1b22a411b",
+    "release": "https://github.com/clash-verge-rev/clash-verge-rev/releases/tag/v2.5.10"
+  }
+}
