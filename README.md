@@ -41,6 +41,8 @@ Start with the [feature index](功能列表/索引.md) and [current work](任务
 then follow only the links relevant to the task. The
 [maintenance boundaries](功能列表/F008-维护与分层.md) describe incremental module splitting.
 Product and development plans describe future work; the runtime instructions below describe current V0.1 behavior.
+The [V0.1 engineering design](DESIGN.md) records the current implementation contract;
+the [changelog](CHANGELOG.md) summarizes changes and known limitations.
 
 ## Why the topology fails closed
 
