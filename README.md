@@ -33,7 +33,12 @@ compile_subscription(source_yaml, policy) -> CompileResult
 - last-known-good compiled generations
 - per-group front-hop/chain delay tests and direct landing authentication/exit-IP checks
 
-Packaging and disposable client smoke tests remain future work.
+P1 has started with a pure service-policy input model and domain validation;
+it is not yet connected to the runtime UI or client application flows. See
+[implementation scope](功能列表/F016-P1服务策略基础.md).
+Disposable Linux client prototypes have partial validation evidence in
+[F013](功能列表/F013-新订阅与FlClash接入.md); production adapters, macOS acceptance
+and packaging remain unfinished.
 
 ## Project navigation
 
