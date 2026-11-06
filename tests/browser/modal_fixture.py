@@ -20,7 +20,7 @@ def main():
                 "server": "landing.example.invalid", "port": 1080,
             })
         server = create_server(service, port=0)
-        print(f"Modal fixture: http://127.0.0.1:{server.server_port}", flush=True)
+        print(f"Modal fixture: http://localhost:{server.server_port}/legacy", flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:

@@ -1,0 +1,4 @@
+# Compact this project's long chats before large requests accumulate.
+# Conversation history remains available; only the active model context is compacted.
+model_auto_compact_token_limit = 128000
+model_auto_compact_token_limit_scope = "total"

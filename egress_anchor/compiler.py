@@ -662,6 +662,8 @@ def inspect_subscription(source_yaml: str) -> Mapping[str, Any]:
                 "type": group["type"],
                 "proxies": list(group.get("proxies", [])),
                 "use": list(group.get("use", [])),
+                "dynamic_candidates": any(group.get(key, False) for key in (
+                    "include-all", "include-all-proxies", "include-all-providers")),
                 "hidden": bool(group.get("hidden", False)),
                 "icon": group.get("icon"),
             }

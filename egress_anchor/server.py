@@ -19,6 +19,18 @@ DEFAULT_STATIC_DIR = ROOT / "static"
 DEFAULT_DATA_DIR = ROOT / "dev-data"
 MAX_JSON_BYTES = 1024 * 1024
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# Explicit resources only: never turn the loopback server into a directory server.
+STATIC_FILES = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/legacy": ("legacy.html", "text/html; charset=utf-8"),
+    **{f"/static/{name}.css": (f"{name}.css", "text/css; charset=utf-8")
+       for name in ("app", "drawer")},
+    **{f"/static/{name}.js": (f"{name}.js", "text/javascript; charset=utf-8")
+       for name in ("app", "api", "ui", "services", "service-editor", "resources", "settings")},
+    **{f"/static/assets/{name}.svg": (f"assets/{name}.svg", "image/svg+xml")
+       for name in ("lucide", "claude", "openai", "deepseek")},
+}
 
 
 def _json_body(value: Mapping[str, Any]) -> bytes:
@@ -91,7 +103,8 @@ def _handler_class(service: GatewayService, static_dir: Path):
                 error.status,
                 {
                     "ok": False,
-                    "error": {"code": error.code, "message": error.safe_message},
+                    "error": {"code": error.code, "message": error.safe_message,
+                              "field": error.field, "service_ids": error.service_ids},
                 },
             )
 
@@ -152,15 +165,16 @@ def _handler_class(service: GatewayService, static_dir: Path):
         def do_GET(self):
             def action():
                 path = urllib.parse.urlsplit(self.path).path
-                if path in {"/", "/index.html"}:
-                    index_path = static_dir / "index.html"
+                if path in STATIC_FILES:
+                    filename, mime = STATIC_FILES[path]
+                    index_path = static_dir / filename
                     if not index_path.exists():
                         raise GatewayError(
                             "UI_NOT_FOUND",
                             "The local UI is unavailable.",
                             status=500,
                         )
-                    self._send(200, "text/html; charset=utf-8", index_path.read_bytes())
+                    self._send(200, mime, index_path.read_bytes())
                     return
                 if path == "/api/health":
                     self._send_json(200, {"ok": True, "service": "egress-anchor"})
@@ -198,6 +212,9 @@ def _handler_class(service: GatewayService, static_dir: Path):
             def action():
                 path = urllib.parse.urlsplit(self.path).path
                 payload = self._read_json()
+                if path == "/api/services":
+                    self._send_json(200, service.update_service(payload))
+                    return
                 if path == "/api/bindings/probe":
                     self._send_json(200, {"ok": True, "probe": service.probe_binding(payload)})
                     return
@@ -231,6 +248,9 @@ def _handler_class(service: GatewayService, static_dir: Path):
             def action():
                 path = urllib.parse.urlsplit(self.path).path
                 payload = self._read_json()
+                if path == "/api/services":
+                    self._send_json(200, service.update_service(payload))
+                    return
                 if path == "/api/diagnostics/controller":
                     controller = service.set_diagnostics_controller(payload)
                     self._send_json(200, {"ok": True, "controller": controller})
@@ -275,6 +295,9 @@ def _handler_class(service: GatewayService, static_dir: Path):
         def do_DELETE(self):
             def action():
                 path = urllib.parse.urlsplit(self.path).path
+                if path == "/api/services":
+                    self._send_json(200, service.update_service(self._read_json(), delete=True))
+                    return
                 source_prefix = "/api/sources/"
                 if path.startswith(source_prefix):
                     source_id = path.removeprefix(source_prefix)

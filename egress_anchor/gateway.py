@@ -35,6 +35,9 @@ from .diagnostics import (
     validate_controller_secret,
     validate_controller_url,
 )
+from .service_catalog import change_service, default_services, service_view
+from .service_compiler import airport_choices, compile_service_subscription, validate_service_references
+from .service_policy import ServicePolicyError
 
 
 STATE_VERSION = 2
@@ -70,11 +73,14 @@ class FetchResult:
 class GatewayError(RuntimeError):
     """A caller-safe gateway failure."""
 
-    def __init__(self, code: str, safe_message: str, *, status: int = 400) -> None:
+    def __init__(self, code: str, safe_message: str, *, status: int = 400,
+                 field=None, service_ids=()) -> None:
         super().__init__(safe_message)
         self.code = code
         self.safe_message = safe_message
         self.status = status
+        self.field = field
+        self.service_ids = service_ids
 
 
 class _LimitedRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -670,6 +676,8 @@ class GatewayService:
             compiled_path = self._compiled_path(active)
             available = bool(compiled_path and compiled_path.exists())
             return {
+                **service_view(self._state),
+                "airport_choices": airport_choices(self._state["catalog"], self._state["bindings"]),
                 "sources": sources,
                 "selected_source_id": selected_source_id,
                 "active_source_id": active_source_id,
@@ -691,6 +699,48 @@ class GatewayService:
                     "has_secret": bool(self._controller_settings()["secret"]),
                 },
             }
+
+    def update_service(self, payload: Mapping[str, Any], *, delete=False) -> Mapping[str, Any]:
+        """Atomically save one service and its local generation, never a client file."""
+        with self._lock:
+            if "source_id" not in payload or payload["source_id"] != self._state.get("selected_source_id"):
+                raise GatewayError("SOURCE_CHANGED", "当前订阅已变化，请刷新后重试。", status=409)
+            candidate = deepcopy(self._state)
+            try:
+                records = change_service(candidate.get("services", default_services()), payload,
+                                         now=self._timestamp(), delete=delete)
+                edited_id = payload["service"].get("id") or records[-1]["id"]
+                blocked = []
+                for record in records:
+                    try:
+                        validate_service_references([record], candidate["landings"], candidate["catalog"], candidate["bindings"])
+                    except ServicePolicyError:
+                        if record["id"] == edited_id:
+                            raise
+                        blocked.append(record["id"])
+                candidate["services"] = records
+                candidate["services_revision"] = candidate.get("services_revision", 0) + 1
+                source_id = candidate.get("selected_source_id")
+                source = next((s for s in candidate.get("sources", []) if s["id"] == source_id), None)
+                compiled = False
+                # A source switch can invalidate several references at once.
+                # Allow repairing them one at a time, keeping the prior delivery
+                # until every reference is valid; reject a newly invalid edit.
+                if source is not None and not blocked:
+                    snapshot = self._source_snapshot_path(source_id)
+                    if snapshot is None or not snapshot.exists():
+                        raise GatewayError("SOURCE_CACHE_MISSING", "订阅快照不可用，请重新导入。", status=503)
+                    self._compiled_state(candidate, snapshot.read_text(encoding="utf-8"), source=source)
+                    candidate["active_source_id"] = source_id
+                    compiled = True
+            except ServicePolicyError as error:
+                raise GatewayError(error.code, error.safe_message,
+                    status=409 if error.code == "SERVICE_CHANGED" else 422,
+                    field=error.field, service_ids=error.service_ids) from None
+            candidate["last_error"] = None
+            self._save_state_value(candidate)
+            self._state = candidate
+            return {"ok": True, "compiled": compiled, "blocked_service_ids": blocked}
 
     def _controller_settings(self) -> dict[str, Any]:
         settings = self._state.get("diagnostics_controller") or {}
@@ -1124,10 +1174,14 @@ class GatewayService:
                 ),
                 None,
             )
-            if active_source is not None and any(
+            service_affected = any(
+                item["exit"].get("kind") == "isp" and item["exit"].get("reference") == landing_id
+                for item in candidate.get("services", [])
+            )
+            if active_source is not None and (service_affected or any(
                 binding.get("enabled") and binding.get("landing_id") == landing_id
                 for binding in active_source.get("bindings", [])
-            ):
+            )):
                 snapshot_path = self._source_snapshot_path(active_source_id)
                 if snapshot_path is None or not snapshot_path.exists():
                     raise GatewayError(
@@ -1148,6 +1202,9 @@ class GatewayService:
 
     def delete_landing(self, landing_id: str) -> None:
         with self._lock:
+            if any(item["exit"].get("kind") == "isp" and item["exit"].get("reference") == landing_id
+                   for item in self._state.get("services", [])):
+                raise GatewayError("LANDING_IN_USE", "此代理仍被服务使用，请先更改服务出口。", status=409)
             candidate = deepcopy(self._state)
             before = len(candidate["landings"])
             candidate["landings"] = [
@@ -1295,16 +1352,24 @@ class GatewayService:
         source: Optional[Mapping[str, Any]] = None,
     ) -> Optional[CompileResult]:
         policy = self._policy_for_state(state, source=source)
-        if policy is None:
+        if policy is None and "services" not in state:
             return None
         try:
-            result = compile_subscription(source_yaml, policy)
+            if "services" in state:
+                result = compile_service_subscription(source_yaml, state["services"], state["landings"], policy)
+            else:
+                result = compile_subscription(source_yaml, policy)
+        except ServicePolicyError as exc:
+            raise GatewayError(exc.code, exc.safe_message, status=422,
+                               field=exc.field, service_ids=exc.service_ids) from None
         except CompileError as exc:
             raise GatewayError(exc.code, exc.safe_message, status=422) from None
         generation = self._write_generation(source_yaml, result)
         state["active_generation"] = generation
         state["active_report"] = deepcopy(result.report)
         state["last_success_at"] = self._timestamp()
+        if "services" in state:
+            state["compiled_services_revision"] = state.get("services_revision", 0)
         return result
 
     def update_bindings(

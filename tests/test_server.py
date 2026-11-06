@@ -398,8 +398,8 @@ class GatewayHttpTests(unittest.TestCase):
         self.assertEqual("SUBSCRIPTION_NOT_FOUND", body["error"]["code"])
         self.assertNotIn("super-secret-wrong-token", repr(body))
 
-    def test_root_serves_reused_gateway_component_system(self):
-        status, _, body = self.request("/")
+    def test_legacy_serves_reused_gateway_component_system(self):
+        status, _, body = self.request("/legacy")
         html = body.decode("utf-8")
 
         self.assertEqual(200, status)

@@ -41,6 +41,11 @@ PYTHONDONTWRITEBYTECODE=1 python3 tests/p0/kernel_checks.py --binary dev-data/p0
 拒绝 UDP 的规则只添加在对照夹具中，未修改生产编译器，不能据对照通过宣称缺口已修复。
 此脚本不随默认 unittest 自动运行；后续修复后应更新预期并加入正式回归测试。
 
+11 月 6 日新增的 `service_checks.py` 针对 P1 服务编译入口：该入口已正式生成 ISP 服务 UDP
+拒绝；8 项检查通过。旧 `kernel_checks.py` 继续保留上面的未加固策略组基线，不改写历史结果。
+执行方式：`python3 tests/p0/service_checks.py --binary dev-data/p0/tools/mihomo-darwin-arm64-v1.19.33 --report dev-data/ui-qa/service-kernel.json`。
+服务检查的自动健康 URL 也替换为本机地址，禁止意外访问外网；其结果仍不代表完整严格模式或桌面客户端验收。
+
 ## 代码职责
 
 - loopback_fixtures.py：回显、转发代理和协议客户端积木，拒绝非本机目标。

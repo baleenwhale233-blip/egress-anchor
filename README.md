@@ -11,10 +11,10 @@ EgressAnchor does not promise account safety, bypass platform enforcement, or
 grant permission to ignore provider terms. AI tools are an important use case,
 not the product boundary.
 
-Current limitation: the singleton landing topology alone does not constrain UDP
-when the chosen outbound cannot carry it. In pinned Mihomo v1.19.33 tests, UDP
-continued to a later `DIRECT` rule. Explicit per-service UDP constraints remain
-to be implemented; see the [P0 findings](功能列表/F009-P0验证.md#3-udp-缺口与后续要求).
+The new service compiler explicitly rejects UDP for ISP routes, verified with
+pinned Mihomo v1.19.33. The legacy policy-group compiler still has the UDP
+fall-through limitation documented in the [P0 findings](功能列表/F009-P0验证.md#3-udp-缺口与后续要求).
+Neither result establishes complete strict-mode, DNS/WebRTC or desktop-client protection.
 
 ## Status
 
@@ -32,10 +32,14 @@ compile_subscription(source_yaml, policy) -> CompileResult
 - `source`, `fixed`, `automatic`, and `direct` front-hop policies
 - last-known-good compiled generations
 - per-group front-hop/chain delay tests and direct landing authentication/exit-IP checks
+- service dashboard with Claude, ChatGPT/Codex, DeepSeek and custom service settings
+- four service exits, domain exclusions, conflict validation and per-record revision checks
+- generated service rules and ISP UDP rejection, with last-good delivery during source changes
 
-P1 has started with a pure service-policy input model and domain validation;
-it is not yet connected to the runtime UI or client application flows. See
-[implementation scope](功能列表/F016-P1服务策略基础.md).
+P1 service configuration, generation, APIs and the core UI are connected. See
+[implementation scope](功能列表/F017-服务出口UI与生成.md) and [frontend acceptance](docs/frontend-qa-2026-11-06.md).
+Client application remains manual: the UI reports pending updates and unverified
+paths, and the complete strict-mode control is disabled.
 Disposable Linux client prototypes have partial validation evidence in
 [F013](功能列表/F013-新订阅与FlClash接入.md); production adapters, macOS acceptance
 and packaging remain unfinished.
@@ -45,7 +49,7 @@ and packaging remain unfinished.
 Start with the [feature index](功能列表/索引.md) and [current work](任务进展/当前.md),
 then follow only the links relevant to the task. The
 [maintenance boundaries](功能列表/F008-维护与分层.md) describe incremental module splitting.
-Product and development plans describe future work; the runtime instructions below describe current V0.1 behavior.
+Product and development plans describe future work; the runtime instructions below describe the implemented local workflow.
 The [V0.1 engineering design](DESIGN.md) records the current implementation contract;
 the [changelog](CHANGELOG.md) summarizes changes and known limitations.
 
@@ -92,20 +96,34 @@ python3 app.py
 
 Open <http://127.0.0.1:8788> and follow the page:
 
-1. Choose **添加订阅**, enter a name and a complete Mihomo subscription URL,
+1. Open **设置 → 导入订阅**, enter a name and a complete Mihomo subscription URL,
    then choose **保存并读取**.
 2. The URL is used once and discarded after the validated snapshot is stored.
-3. Add an HTTP or SOCKS5 landing proxy.
-4. Enable selected policy groups, choose their front-hop policy, and save to
-   activate that source.
-5. Import more sources when needed and switch between their saved snapshots.
-6. Copy the stable local URL into a Mihomo-compatible client.
+3. Add an HTTP or SOCKS5 proxy under **落地代理** if an ISP exit is needed.
+4. Under **服务出口**, choose an exit and save. All builtin services initially
+   inherit the subscription; none silently enables direct routing or strict mode.
+5. **仅走机场** offers fixed source nodes/groups without direct routes. Dynamic
+   provider groups and legacy-managed groups are currently excluded.
+6. Copy the local subscription address from **设置** into a Mihomo-compatible
+   client and update it. Local generation does not confirm client application.
+
+Switching source snapshots preserves the previous delivery until a new complete
+configuration is generated. Missing references can be repaired one service at a
+time. Custom services can be added or removed; domain exclusions resume original
+subscription routing rather than forcing direct access.
+
+The original policy-group interface and diagnostics remain under **设置 → 旧版策略维护**
+at `/legacy`. Navigation/action SVGs are sourced from official Lucide; service
+marks use Lobe Icons. Licenses and provenance are in [static/assets](static/assets/SOURCES.md).
 
 Runtime state is stored under the ignored `dev-data/` directory by default.
 The state and generated client YAML contain plaintext landing credentials and
 use filesystem mode `0600`; do not upload or share that directory.
 
 ## Test a managed chain
+
+These are legacy policy-group diagnostics at `/legacy`; service-level probes on
+the new dashboard remain unverified until client integration is implemented.
 
 1. Save and activate the source, then update the local subscription in your client.
 2. Expand **客户端连接设置** and enter the client's loopback external-controller
@@ -205,6 +223,16 @@ tokenized delivery, and the management UI.
 Tests use disposable loopback HTTP/controller/proxy fixtures. They do not read
 FlClash files, preferences, databases, live controllers, production state, or
 external network services.
+
+UI acceptance uses [disposable browser fixtures](tests/browser/README.md).
+Service traffic checks use the existing pinned core:
+
+```bash
+python3 tests/p0/service_checks.py --binary dev-data/p0/tools/mihomo-darwin-arm64-v1.19.33 --report dev-data/ui-qa/service-kernel.json
+```
+
+The service checks disable TUN and keep all traffic, including health checks,
+on loopback. They do not verify desktop-client import or automatic application.
 
 ## Development isolation
 
