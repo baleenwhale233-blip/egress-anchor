@@ -39,6 +39,17 @@ class ServiceGatewayTests(unittest.TestCase):
         self.assertEqual('unverified', reloaded['services'][2]['verification'])
         self.assertFalse(reloaded['client']['can_apply'])
 
+    def test_unavailable_protection_presets_cannot_change_saved_or_generated_state(self):
+        self.import_source()
+        self.save(2, exit={'kind': 'direct'})
+        before, body = self.service.state_path.read_bytes(), self.subscription()
+        for preset in ('recommended', 'custom'):
+            with self.subTest(preset=preset), self.assertRaises(GatewayError) as error:
+                self.save(2, protection={'preset': preset, 'overrides': {}})
+            self.assertEqual('SERVICE_PROTECTION_UNAVAILABLE', error.exception.code)
+            self.assertEqual(before, self.service.state_path.read_bytes())
+            self.assertEqual(body, self.subscription())
+
     def test_generate_and_restore_inherited_rules_without_touching_other_services(self):
         self.import_source()
         self.assertTrue(self.save(2, exit={'kind': 'direct'})['compiled'])

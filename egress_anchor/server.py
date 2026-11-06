@@ -12,6 +12,7 @@ from typing import Any, Mapping, Optional
 import urllib.parse
 
 from .gateway import GatewayError, GatewayService
+from .client_discovery import ClientDiscovery, default_locations
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +28,7 @@ STATIC_FILES = {
     **{f"/static/{name}.css": (f"{name}.css", "text/css; charset=utf-8")
        for name in ("app", "drawer")},
     **{f"/static/{name}.js": (f"{name}.js", "text/javascript; charset=utf-8")
-       for name in ("app", "api", "ui", "services", "service-editor", "resources", "settings")},
+       for name in ("app", "api", "ui", "services", "service-editor", "service-details", "client", "resources", "settings")},
     **{f"/static/assets/{name}.svg": (f"assets/{name}.svg", "image/svg+xml")
        for name in ("lucide", "claude", "openai", "deepseek")},
 }
@@ -181,6 +182,9 @@ def _handler_class(service: GatewayService, static_dir: Path):
                     return
                 if path == "/api/state":
                     self._send_json(200, {"ok": True, "state": self._state_with_url()})
+                    return
+                if path == "/api/client":
+                    self._send_json(200, {"ok": True, "client": service.discover_client()})
                     return
                 if path.startswith("/sub/"):
                     token = path.removeprefix("/sub/")
@@ -341,7 +345,7 @@ def main(argv=None) -> None:
         default=Path(os.environ.get("EGRESS_ANCHOR_DATA_DIR", DEFAULT_DATA_DIR)),
     )
     args = parser.parse_args(argv)
-    service = GatewayService(args.data_dir)
+    service = GatewayService(args.data_dir, client_discovery=ClientDiscovery(locations=default_locations()))
     server = create_server(service, host=args.host, port=args.port)
     print(f"EgressAnchor  http://{args.host}:{server.server_port}", flush=True)
     print(f"data          {args.data_dir}", flush=True)

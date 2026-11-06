@@ -8,6 +8,9 @@ from copy import deepcopy
 import secrets
 
 from .service_policy import ServicePolicyError, parse_service_policies
+from .service_protection import (ProtectionError, ProtectionPolicy, parse_protection,
+                                 protection_capabilities, protection_details)
+from .service_status import service_status
 
 
 TEMPLATE_VERSION = "2026-11-06"
@@ -27,13 +30,13 @@ TEMPLATES = {
         "domains": ["deepseek.com"], "suggested_exit": "direct",
     },
 }
-EDIT_FIELDS = {"id", "name", "template_id", "extra_domains", "exclude_domains", "exit", "strict"}
+EDIT_FIELDS = {"id", "name", "template_id", "extra_domains", "exclude_domains", "exit", "strict", "protection"}
 
 
 def default_services():
     return [dict(id=key, name=value["name"], template_id=key, extra_domains=[],
                  exclude_domains=[], exit={"kind": "inherit"}, strict=False,
-                 revision=0, updated_at=None) for key, value in TEMPLATES.items()]
+                 protection=ProtectionPolicy().as_dict(), revision=0, updated_at=None) for key, value in TEMPLATES.items()]
 
 
 def resolve_services(records):
@@ -46,6 +49,7 @@ def resolve_services(records):
             "domains": template.get("domains", []) + record.get("extra_domains", []),
             "exclude_domains": record.get("exclude_domains", []),
             "exit": record["exit"], "strict": record.get("strict", False),
+            **({"protection": record["protection"]} if "protection" in record else {}),
         })
     return parse_service_policies(resolved)
 
@@ -80,12 +84,19 @@ def change_service(records, payload, *, now, delete=False):
             raise ServicePolicyError("SERVICE_POLICY_INVALID", "每个列表最多填写 256 个域名。", f"service.{field}")
     if raw.get("strict"):
         raise ServicePolicyError("SERVICE_STRICT_UNAVAILABLE", "完整严格模式尚未接入，暂不能开启。", "service.strict")
+    try:
+        protection = parse_protection(raw.get("protection", (current or {}).get(
+            "protection", ProtectionPolicy().as_dict())))
+    except ProtectionError as error:
+        raise ServicePolicyError("SERVICE_PROTECTION_INVALID", str(error), f"service.{error.field}") from None
+    if protection.preset != "off":
+        raise ServicePolicyError("SERVICE_PROTECTION_UNAVAILABLE", "完整保护尚未接入，暂不能开启。", "service.protection.preset")
     if "exit" not in raw:
         raise ServicePolicyError("SERVICE_POLICY_INVALID", "请选择出口方式。", "service.exit")
     record = {key: deepcopy(value) for key, value in raw.items()}
     record.update(id=service_id or f"custom-{secrets.token_hex(6)}", template_id=template_id,
                   extra_domains=raw.get("extra_domains", []), exclude_domains=raw.get("exclude_domains", []),
-                  strict=raw.get("strict", False), revision=revision + 1, updated_at=now)
+                  strict=raw.get("strict", False), protection=protection.as_dict(), revision=revision + 1, updated_at=now)
     # Validate additional domains separately, so a template cannot hide malformed input.
     additional = parse_service_policies([dict(id=record["id"], name=record.get("name"),
         domains=record["extra_domains"], exclude_domains=record["exclude_domains"],
@@ -112,9 +123,13 @@ def service_view(state):
         untouched = record["exit"]["kind"] == "inherit" and record["revision"] == 0
         record["application"] = "inherited" if untouched else ("pending_client" if generated else "saved")
         record["verification"] = "unverified"
+        protection = parse_protection(record.get("protection", ProtectionPolicy().as_dict()))
+        record["protection"] = protection.as_dict()
+        record["protection_details"] = protection_details(protection, record["exit"]["kind"])
+        record["status"] = service_status(record, state, record["application"])
     return {
         "services": records, "templates": deepcopy(TEMPLATES), "template_version": TEMPLATE_VERSION,
         "services_need_generation": not generated,
-        "client": {"state": "not_connected", "name": None, "can_apply": False, "can_probe": False},
-        "capabilities": {"strict": False, "service_probe": False, "automatic_apply": False},
+        "capabilities": {"strict": False, "service_probe": False, "automatic_apply": False,
+                         "protection": protection_capabilities()},
     }

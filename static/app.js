@@ -3,12 +3,14 @@ import {esc, icon, toast} from './ui.js';
 import {renderServices, bindServices} from './services.js';
 import {renderResources, bindResources} from './resources.js';
 import {renderSettings, bindSettings} from './settings.js';
+import {updateClientViews} from './client.js';
 const main = document.querySelector('#main');
 const pages = {services: ['服务出口', renderServices, bindServices], landings: ['落地代理', renderResources, bindResources], settings: ['设置', renderSettings, bindSettings]};
-const editableFields = ['id', 'name', 'template_id', 'extra_domains', 'exclude_domains', 'exit', 'strict'];
+const editableFields = ['id', 'name', 'template_id', 'extra_domains', 'exclude_domains', 'exit', 'protection'];
 let refreshSequence = 0, loadError = null;
 const app = {
   state: null, pending: new Set(), errors: new Map(), drafts: new Map(),
+  client: null, clientLoading: false, clientError: null,
   route: () => Object.hasOwn(pages, location.hash.slice(1)) ? location.hash.slice(1) : 'services',
   render() {
     const route = this.route(), [title, render, bind] = pages[route];
@@ -34,11 +36,24 @@ const app = {
     const sequence = ++refreshSequence;
     try {
       const result = await request('/api/state');
-      if (sequence === refreshSequence) { this.state = result.state; loadError = null; this.render(); }
+      if (sequence === refreshSequence) {
+        this.state = result.state;
+        if (this.client) this.state.client = this.client;
+        loadError = null; this.render();
+      }
     } catch (error) {
       if (sequence === refreshSequence) { loadError = error.message; this.render(); }
       throw error;
     }
+  },
+  async refreshClient() {
+    if (this.clientLoading || !this.state) return;
+    this.clientLoading = true; this.clientError = null; updateClientViews(this);
+    try {
+      const result = await request('/api/client', {timeout: 6000});
+      this.client = this.state.client = result.client;
+    } catch (error) { this.clientError = error.message; }
+    finally { this.clientLoading = false; updateClientViews(this); }
   },
   async write(path, method, data) {
     const result = await request(path, {method, data});
@@ -62,4 +77,4 @@ window.addEventListener('hashchange', () => { app.render(); window.scrollTo(0, 0
 document.querySelector('.skip-link').addEventListener('click', event => {
   event.preventDefault(); main.focus(); main.scrollIntoView({block: 'start'});
 });
-app.refresh().catch(() => {});
+app.refresh().then(() => app.refreshClient()).catch(() => {});

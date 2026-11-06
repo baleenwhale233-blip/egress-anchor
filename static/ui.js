@@ -22,8 +22,9 @@ export function toast(message) {
   toastTimer = setTimeout(() => { box.hidden = true; }, 4200);
 }
 const drawer = document.querySelector('#drawer');
-let opener, openerId, openerName, openerValue, scrollY = 0;
+let opener, openerId, openerName, openerValue, scrollY = 0, closeGuard = null;
 export function openDrawer(title, content, footer) {
+  closeGuard = null;
   if (!drawer.open) {
     opener = document.activeElement; openerId = opener?.id;
     openerName = opener?.name; openerValue = opener?.value; scrollY = window.scrollY;
@@ -40,8 +41,27 @@ export function openDrawer(title, content, footer) {
   (drawer.querySelector('[autofocus]') || drawer.querySelector('[data-close]')).focus();
   return drawer;
 }
-export function closeDrawer() { if (drawer.getAttribute('aria-busy') !== 'true') drawer.close(); }
-drawer.addEventListener('cancel', event => { if (drawer.getAttribute('aria-busy') === 'true') event.preventDefault(); });
+export function closeDrawer(options = {}) {
+  if (drawer.getAttribute('aria-busy') === 'true') return;
+  if (options.force !== true && closeGuard?.()) return;
+  drawer.close();
+}
+export function guardDrawerClose(isDirty) {
+  const notice = drawer.querySelector('#discard-notice');
+  closeGuard = () => {
+    if (!isDirty()) return false;
+    notice.hidden = false;
+    notice.scrollIntoView({block: 'nearest'});
+    notice.querySelector('#keep-editing').focus();
+    return true;
+  };
+  notice.querySelector('#keep-editing').onclick = () => { notice.hidden = true; drawer.querySelector('[name="name"]').focus(); };
+  notice.querySelector('#discard-changes').onclick = () => closeDrawer({force: true});
+}
+drawer.addEventListener('cancel', event => {
+  if (drawer.getAttribute('aria-busy') === 'true') event.preventDefault();
+  else if (closeGuard) { event.preventDefault(); closeDrawer(); }
+});
 drawer.addEventListener('keydown', event => {
   if (event.key !== 'Tab') return;
   const controls = [...drawer.querySelectorAll('button,a[href],input,select,textarea,[tabindex]')]
@@ -55,6 +75,7 @@ drawer.addEventListener('keydown', event => {
   }
 });
 drawer.addEventListener('close', () => {
+  closeGuard = null;
   document.documentElement.classList.remove('modal-open'); document.body.classList.remove('modal-open');
   document.body.style.removeProperty('--scroll-offset'); window.scrollTo(0, scrollY);
   const target = opener?.isConnected ? opener : (openerId && document.getElementById(openerId)) ||

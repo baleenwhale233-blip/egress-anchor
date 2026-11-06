@@ -49,7 +49,7 @@ async (preview) => {
     assert(await page.evaluate(()=>document.activeElement.id)==='probe-claude', 'Escape restores opener focus');
 
     await page.locator('#edit-claude').click();
-    await dialog.locator('summary').click();
+    await dialog.locator('#domain-details summary').click();
     await dialog.locator('[name="extra_domains"]').fill('https://bad.example.test/path');
     await page.getByRole('button',{name:'保存设置',exact:true}).click();
     await dialog.locator('[aria-invalid="true"]').waitFor();
@@ -119,7 +119,7 @@ async (preview) => {
     await size(390,844);
     await page.screenshot({path:`${output}/services-mobile.png`,fullPage:true,scale:'css'});
     await page.locator('#edit-claude').click();
-    await dialog.locator('summary').click();
+    await dialog.locator('#domain-details summary').click();
     await page.screenshot({path:`${output}/drawer-mobile.png`,fullPage:false,scale:'css'});
     const geometry = await dialog.evaluate(el=>{const r=el.getBoundingClientRect(),footer=el.querySelector('footer').getBoundingClientRect();return{top:r.top,bottom:r.bottom,footer:footer.bottom,height:innerHeight,scroll:el.querySelector('.drawer-content').scrollHeight>el.querySelector('.drawer-content').clientHeight};});
     assert(geometry.top>=-1 && geometry.bottom<=geometry.height+1 && geometry.footer<=geometry.height+1 && geometry.scroll, 'mobile drawer bounded with reachable footer');

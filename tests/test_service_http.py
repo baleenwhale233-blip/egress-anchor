@@ -38,7 +38,7 @@ class ServiceHttpTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertIn('服务出口', body.decode())
         self.assertIn(b'type="module"', body)
-        for name in ('app', 'api', 'ui', 'services', 'service-editor', 'resources', 'settings'):
+        for name in ('app', 'api', 'ui', 'services', 'service-editor', 'service-details', 'client', 'resources', 'settings'):
             status, mime, _ = self.request(f'/static/{name}.js')
             self.assertEqual(200, status)
             self.assertIn('javascript', mime)
@@ -46,6 +46,14 @@ class ServiceHttpTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual('image/svg+xml', mime)
         self.assertIn(b'<symbol id="anchor"', body)
+
+    def test_discovery_api_does_not_scan_host_or_claim_application_in_library_mode(self):
+        status, _, body = self.request('/api/client')
+        self.assertEqual(200, status)
+        client = json.loads(body)['client']
+        self.assertEqual('not_found', client['state'])
+        self.assertFalse(client['can_apply'])
+        self.assertFalse(client['can_probe'])
 
     def test_static_allowlist_does_not_expose_source_or_private_files(self):
         for path in ('/static/../app.py', '/static/assets/SOURCES.md', '/static/legacy.html',

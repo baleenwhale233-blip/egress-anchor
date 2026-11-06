@@ -23,18 +23,17 @@ const messages = {
   GENERATED_NAME_COLLISION: '订阅中已有同名的生成策略，请更换订阅或调整服务。',
   INTERNAL_ERROR: '本地服务未能完成操作。草稿已保留，请稍后重试。',
 };
-export async function request(path, {method = 'GET', data} = {}) {
-  let response;
+export async function request(path, {method = 'GET', data, timeout = 0} = {}) {
+  let response, result;
+  const controller = new AbortController(), timer = timeout ? setTimeout(() => controller.abort(), timeout) : null;
   try {
-    response = await fetch(path, {method, cache: 'no-store',
+    response = await fetch(path, {method, cache: 'no-store', signal: controller.signal,
       headers: data === undefined ? {} : {'Content-Type': 'application/json'},
       body: data === undefined ? undefined : JSON.stringify(data)});
+    result = await response.json();
   } catch {
-    throw new Error('无法连接本地服务。请确认出口锚点正在运行，然后重试。');
-  }
-  let result;
-  try { result = await response.json(); }
-  catch { throw new Error('本地服务返回了无法读取的结果，请重试。'); }
+    throw new Error(response && !controller.signal.aborted ? '本地服务返回了无法读取的结果，请重试。' : '无法连接本地服务。请确认出口锚点正在运行，然后重试。');
+  } finally { clearTimeout(timer); }
   if (!response.ok || !result.ok) {
     const detail = result.error || {};
     const safeChinese = typeof detail.message === 'string' && /[\u3400-\u9fff]/.test(detail.message);

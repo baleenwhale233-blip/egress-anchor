@@ -13,8 +13,10 @@ import ipaddress
 import re
 from typing import Any, Mapping, Optional, Sequence
 
+from .service_protection import ProtectionError, ProtectionPolicy, parse_protection
 
-_SERVICE_FIELDS = {"id", "name", "domains", "exclude_domains", "exit", "strict"}
+
+_SERVICE_FIELDS = {"id", "name", "domains", "exclude_domains", "exit", "strict", "protection"}
 _EXIT_KINDS = {"inherit", "direct", "airport", "isp"}
 _ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}\Z")
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
@@ -72,6 +74,7 @@ class ServicePolicy:
     exclude_domains: tuple[str, ...]
     exit: ServiceExit
     strict: bool = False
+    protection: ProtectionPolicy = ProtectionPolicy()
 
     def matches_domain(self, hostname: str) -> bool:
         try:
@@ -184,12 +187,20 @@ def parse_service_policies(value: Sequence[Mapping[str, Any]]) -> tuple[ServiceP
         strict = raw.get("strict", False)
         if not isinstance(strict, bool):
             raise _invalid(f"{path}.strict")
+        try:
+            protection = parse_protection(raw.get("protection", {
+                "preset": "recommended" if strict else "off", "overrides": {}}))
+        except ProtectionError as error:
+            raise ServicePolicyError("SERVICE_PROTECTION_INVALID", str(error), f"{path}.{error.field}") from None
+        if "protection" in raw and "strict" in raw and strict != (protection.preset != "off"):
+            raise _invalid(f"{path}.strict")
+        strict = protection.preset != "off"
         if strict and exit_choice.kind == "inherit":
             raise ServicePolicyError(
                 "SERVICE_STRICT_REQUIRES_OVERRIDE", "Strict mode needs an explicit service exit.",
                 f"{path}.strict", service_ids=(service_id,),
             )
-        policies.append(ServicePolicy(service_id, name, domains, exclusions, exit_choice, strict))
+        policies.append(ServicePolicy(service_id, name, domains, exclusions, exit_choice, strict, protection))
     result = tuple(policies)
     _check_conflicts(result)
     return result

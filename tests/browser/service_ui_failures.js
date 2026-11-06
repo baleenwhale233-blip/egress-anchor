@@ -27,6 +27,7 @@ async (preview) => {
     assert((await state()).services.find(s=>s.id==='claude').revision===original.revision, 'failed request leaves persisted record unchanged');
     await page.unroute('**/api/services');
     await page.keyboard.press('Escape');
+    await dialog.locator('#discard-changes').click();
 
     await page.locator('#edit-claude').click();
     await dialog.locator('[name="name"]').fill('过期窗口草稿');
@@ -37,6 +38,7 @@ async (preview) => {
     assert((await state()).services.find(s=>s.id==='claude').name==='另一个窗口已保存', 'stale save does not overwrite newer record');
     await update('claude', {name:original.name});
     await page.keyboard.press('Escape');
+    await dialog.locator('#discard-changes').click();
     await page.reload();
 
     let release;

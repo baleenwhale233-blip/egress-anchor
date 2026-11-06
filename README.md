@@ -39,7 +39,12 @@ compile_subscription(source_yaml, policy) -> CompileResult
 P1 service configuration, generation, APIs and the core UI are connected. See
 [implementation scope](功能列表/F017-服务出口UI与生成.md) and [frontend acceptance](docs/frontend-qa-2026-11-06.md).
 Client application remains manual: the UI reports pending updates and unverified
-paths, and the complete strict-mode control is disabled.
+paths. The settings drawer separates protection presets/details, domain scope,
+verification and advanced parameters. Recommended/custom protection remains disabled.
+The CLI now discovers FlClash metadata read-only on macOS/Linux and optionally
+reads loopback `GET /configs` for mode/TUN information; discovery is not application
+or service-path verification. See [current scope](功能列表/F018-服务设置与只读接入.md)
+and [latest frontend acceptance](docs/frontend-qa-2026-11-07.md).
 Disposable Linux client prototypes have partial validation evidence in
 [F013](功能列表/F013-新订阅与FlClash接入.md); production adapters, macOS acceptance
 and packaging remain unfinished.
@@ -111,6 +116,14 @@ Switching source snapshots preserves the previous delivery until a new complete
 configuration is generated. Missing references can be repaired one service at a
 time. Custom services can be added or removed; domain exclusions resume original
 subscription routing rather than forcing direct access.
+
+The panel checks FlClash once on opening. **设置 → 客户端 → 重新检查** refreshes
+the observation through `GET /api/client`; normal state reads do not scan the client.
+Known data directories, SQLite schemas 2/21 and macOS plist preferences are supported
+for metadata reads. The database/WAL is copied into a private temporary directory;
+changing or unsupported snapshots are rejected. No source files, selected profile,
+TUN or running mode are changed. Credentials and subscription URLs are not returned.
+This does not establish compatibility for automatic application or recovery.
 
 The original policy-group interface and diagnostics remain under **设置 → 旧版策略维护**
 at `/legacy`. Navigation/action SVGs are sourced from official Lucide; service

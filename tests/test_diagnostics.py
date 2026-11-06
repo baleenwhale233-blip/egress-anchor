@@ -8,7 +8,7 @@ import urllib.parse
 
 from egress_anchor.diagnostics import (
     BindingDiagnostics, BindingProbe, LandingProbe, DiagnosticsError,
-    validate_controller_url,
+    MihomoController, validate_controller_url,
 )
 
 
@@ -24,6 +24,8 @@ class FixtureController(BaseHTTPRequestHandler):
             self.send_json(401, {'message': 'fixture-controller-secret'})
         elif (name, path.endswith('/delay')) in self.server.responses:
             self.send_json(*self.server.responses[(name, path.endswith('/delay'))])
+        elif path == '/configs':
+            self.send_json(200, {'mode': 'rule', 'tun': {'enable': True}, 'secret': 'fixture-controller-secret'})
         elif path.endswith('/delay'):
             self.send_json(200, {'delay': 192 if name == 'EA·fixture·landing' else 133})
         else:
@@ -66,6 +68,18 @@ class BindingDiagnosticsTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=3)
+
+    def test_runtime_discovery_only_reads_configs_and_sanitizes_response(self):
+        result = MihomoController(self.url, 'fixture-controller-secret').runtime_info()
+        self.assertEqual({'state': 'reachable', 'mode': 'rule', 'tun': True}, result)
+        self.assertEqual([('GET', '/configs')], self.server.requests)
+
+    def test_runtime_discovery_does_not_follow_redirects(self):
+        self.server.responses[('/configs', False)] = (302, {'message': 'fixture-controller-secret'})
+        with self.assertRaises(DiagnosticsError) as error:
+            MihomoController(self.url, 'fixture-controller-secret').runtime_info()
+        self.assertEqual([('GET', '/configs')], self.server.requests)
+        self.assertNotIn('fixture-controller-secret', str(error.exception))
 
     def test_reports_real_core_chain_and_front_delays_separately(self):
         diagnostics = BindingDiagnostics(landing_probe=lambda _landing: {

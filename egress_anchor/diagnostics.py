@@ -98,6 +98,16 @@ class MihomoController:
     def proxy(self, name: str) -> Mapping[str, Any]:
         return self._get("/proxies/" + urllib.parse.quote(name, safe=""))
 
+    def runtime_info(self) -> Mapping[str, Any]:
+        """Read core settings, without issuing traffic or changing configuration."""
+        value = self._get("/configs", timeout=0.8)
+        mode = value.get("mode")
+        tun = value.get("tun")
+        if not isinstance(mode, str) or mode.lower() not in {"rule", "global", "direct"}:
+            raise DiagnosticsError("CONTROLLER_RESPONSE_INVALID", "The client returned an invalid mode.")
+        return {"state": "reachable", "mode": mode.lower(),
+                "tun": tun.get("enable") if isinstance(tun, dict) and type(tun.get("enable")) is bool else None}
+
     def delay(self, name: str) -> int:
         query = urllib.parse.urlencode({
             "url": DELAY_URL, "timeout": DELAY_TIMEOUT_MS, "expected": "204",

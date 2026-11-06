@@ -26,6 +26,7 @@ async (preview) => {
     await page.locator('[data-service="claude"] input[value="isp"]').click();
     assert(await dialog.locator('[name="reference"] option').innerText()==='请先添加落地代理', 'ISP without resources requires an explicit addition');
     await page.keyboard.press('Escape');
+    await dialog.locator('#discard-changes').click();
     await page.locator('#add-service').click();
     const longName = '超长服务名称用于检查文字换行与窗口适配'.repeat(3) + '<b>示例</b>';
     await dialog.locator('[name="name"]').fill(longName);

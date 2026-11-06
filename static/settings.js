@@ -1,9 +1,10 @@
 import {esc, icon, openDrawer, closeDrawer, submitDialog, errorSlot, cancelButton, toast} from './ui.js';
+import {clientPanel, bindClient} from './client.js';
 export function renderSettings(app) {
   const state = app.state, source = state.sources.find(x => x.selected);
   const current = state.subscription.available && state.selected_source_id === state.active_source_id && !state.services_need_generation;
   return `<header class="page-heading"><h1>设置</h1></header><div class="settings-stack">
-    <section class="panel"><div class="panel-heading"><h2>客户端</h2><span class="badge">未接入</span></div><div class="setting-row"><div><h3>自动接入尚未开放</h3><p>当前可生成本地订阅，手动导入兼容的 Mihomo 客户端。应用与检测状态需等待客户端接入后确认。</p></div>${icon('plug')}</div></section>
+    <section class="panel" data-client-panel>${clientPanel(app)}</section>
     <section class="panel"><div class="panel-heading"><h2>订阅来源</h2><button id="add-source" class="primary">${icon('plus')}导入订阅</button></div>
     ${state.sources.length ? state.sources.map(s => `<div class="source-row"><div class="source-info"><strong>${esc(s.name)}</strong> ${s.selected ? '<span class="badge warn">当前选择</span>' : ''}<p>${s.proxy_count} 个节点 · ${s.group_count} 个策略组 · ${s.provider_count} 个节点提供方</p></div><div class="source-actions">${!s.selected ? `<button data-select-source="${s.id}">使用</button>` : ''}<button class="subtle icon-button" data-rename-source="${s.id}" aria-label="重命名 ${esc(s.name)}">${icon('pencil')}</button><button class="subtle icon-button danger" data-delete-source="${s.id}" ${s.active ? 'disabled title="正在提供本地订阅"' : ''} aria-label="删除 ${esc(s.name)}">${icon('trash-2')}</button></div></div>`).join('') : '<p class="hint">还没有订阅。请导入包含节点、策略组和规则的完整 Mihomo 配置。</p>'}</section>
     <section class="panel"><div class="panel-heading"><h2>本地订阅</h2><span class="badge ${current ? 'warn' : ''}">${current ? '已生成 · 待客户端更新' : state.subscription.available ? '仍在提供上一份配置' : '尚未生成'}</span></div><p class="hint">${source ? `当前选择：${esc(source.name)}。服务设置保存后会更新此订阅。` : '导入并选择订阅后，即可生成本地配置。'}复制地址后，在客户端中添加订阅并更新。</p>
@@ -12,6 +13,7 @@ export function renderSettings(app) {
     <section class="panel"><div class="setting-row"><div><h3>旧版策略维护</h3><p>管理已有策略组绑定和连接诊断。</p></div><a class="button" href="/legacy">打开旧版 ${icon('arrow-up-right')}</a></div></section></div>`;
 }
 export function bindSettings(app, root) {
+  bindClient(app, root);
   root.querySelector('#add-source').onclick = () => openSourceEditor(app);
   root.querySelectorAll('[data-rename-source]').forEach(b => { b.onclick = () => openSourceEditor(app, app.state.sources.find(x => x.id === b.dataset.renameSource)); });
   root.querySelectorAll('[data-delete-source]').forEach(b => { b.onclick = () => deleteSource(app, app.state.sources.find(x => x.id === b.dataset.deleteSource)); });

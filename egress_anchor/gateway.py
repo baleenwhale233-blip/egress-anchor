@@ -38,6 +38,7 @@ from .diagnostics import (
 from .service_catalog import change_service, default_services, service_view
 from .service_compiler import airport_choices, compile_service_subscription, validate_service_references
 from .service_policy import ServicePolicyError
+from .client_discovery import ClientDiscovery
 
 
 STATE_VERSION = 2
@@ -472,6 +473,7 @@ class GatewayService:
         fetcher: Callable[..., FetchResult] = fetch_subscription,
         now: Callable[[], float] = time.time,
         diagnostics: Optional[BindingDiagnostics] = None,
+        client_discovery=None,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -487,6 +489,7 @@ class GatewayService:
         self.fetcher = fetcher
         self.now = now
         self.diagnostics = diagnostics if diagnostics is not None else BindingDiagnostics()
+        self.client_discovery = client_discovery if client_discovery is not None else ClientDiscovery()
         self._lock = threading.RLock()
         self._state = self._load_or_create_state()
 
@@ -634,6 +637,7 @@ class GatewayService:
         self._state = candidate
 
     def public_state(self) -> Mapping[str, Any]:
+        client = self.client_discovery.snapshot()
         with self._lock:
             selected_source_id = self._state.get("selected_source_id")
             active_source_id = self._state.get("active_source_id")
@@ -677,6 +681,7 @@ class GatewayService:
             available = bool(compiled_path and compiled_path.exists())
             return {
                 **service_view(self._state),
+                "client": client,
                 "airport_choices": airport_choices(self._state["catalog"], self._state["bindings"]),
                 "sources": sources,
                 "selected_source_id": selected_source_id,
@@ -699,6 +704,9 @@ class GatewayService:
                     "has_secret": bool(self._controller_settings()["secret"]),
                 },
             }
+
+    def discover_client(self):
+        return self.client_discovery.discover()
 
     def update_service(self, payload: Mapping[str, Any], *, delete=False) -> Mapping[str, Any]:
         """Atomically save one service and its local generation, never a client file."""
